@@ -1,0 +1,8 @@
+module Std {
+  extern fun print([]char) : unit = "internal_may_print_string";
+}
+
+fun main() : int {
+  Std.print("Hello world!\n");
+  0
+}

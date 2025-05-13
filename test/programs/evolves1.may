@@ -1,0 +1,33 @@
+class A { 
+  x : int;
+
+  constructor(x : int) {
+    this.x = x;
+  }
+}
+
+class B < A {
+  y : int;
+
+  constructor(x : int, y : int) {
+    super(x);
+    this.y = y;
+  }
+
+  constructor(y : int) evolves A {
+    this.y = y;
+  }
+
+  fun sum() : int {
+    this.x + this.y
+  }
+}
+
+fun main() : int {
+  let a = new A(20);
+  if? b = a evolves B(22) {
+    b:sum()
+  } else { 
+    -1 
+  }
+}

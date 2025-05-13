@@ -1,0 +1,23 @@
+(library
+ (name may)
+ (public_name may)
+ (libraries
+  core
+  core_kernel.vec
+  core_kernel.nonempty_list
+  core_kernel.composition_infix
+  expectable)
+ (inline_tests)
+ (preprocess
+  (pps
+   ppx_jane
+   ; bisect_ppx
+   ))
+ ; (instrumentation
+ ; (backend bisect_ppx)))
+ )
+
+(menhir
+ (modules menhir_parser))
+
+(ocamllex lexer)

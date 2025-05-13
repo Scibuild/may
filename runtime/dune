@@ -1,0 +1,11 @@
+(rule
+ (deps runtime.c)
+ (target runtime.o)
+ (action
+  (run gcc %{deps} -c -o %{target})))
+
+(rule
+ (deps runtime.o)
+ (target libmayruntime.a)
+ (action
+  (run ar rcs %{target} %{deps})))

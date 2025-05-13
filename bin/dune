@@ -1,0 +1,14 @@
+(executable
+ (public_name may)
+ (name may)
+ (libraries
+  may
+  core_unix
+  core
+  core_unix.command_unix
+  core_unix.filename_unix)
+ (promote
+  (until-clean)
+  (into ../))
+ (preprocess
+  (pps ppx_jane)))

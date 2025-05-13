@@ -1,0 +1,42 @@
+module Std {
+  module String {
+    extern fun print([]char) : unit = "internal_may_print_string";
+  }
+
+  module Int {
+    extern fun print(int) : unit = "internal_may_print_int";
+  }
+}
+
+
+class LinkedList {
+  mut v : int;
+  mut next : ?LinkedList;
+
+  constructor(v : int) {
+    this.v = v;
+    this.next = null;
+  }
+  
+  fun setNext(next : ?LinkedList) : unit {
+    this.next = next;
+  }
+
+  fun snoc(v : int) : LinkedList {
+    let new_head = new LinkedList(v);
+    new_head:setNext(this);
+    new_head
+  }
+
+  fun sum() : int {
+    this.v + (if? n = this.next { n:sum() } else { 0 })
+  }
+}
+
+fun main() : int {
+  let list = new LinkedList(4):snoc(2):snoc(7):snoc(-1);
+  Std.String.print("Sum of 4, 2, 7 and -1: ");
+  Std.Int.print(list:sum());
+  Std.String.print("\n");
+  0
+}
