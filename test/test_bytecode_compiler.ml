@@ -293,6 +293,16 @@ let programs_without_bytecode =
       b == a
     }
     |}
+  ; {|
+      module A {
+        const x = 10;
+
+        fun getX() : int { x }
+      }
+      fun main() : int {
+        A.getX()
+      }
+      |}
   ]
 ;;
 
@@ -300,7 +310,7 @@ let test ~with_bytecode program =
   let program = Utils.remove_indentation program in
   May.Resolved_ident.Global.Id.For_testing.reset_counter ();
   May.Type.Class_id.For_testing.reset_counter ();
-  let check = May.Check.empty () in
+  let check = May.Check.empty ~mode:May.Mode.Without in
   let checked_ast =
     program
     |> May.For_testing.parse_string
@@ -926,6 +936,16 @@ let%expect_test "bytecode_compiler_output_without_bytecode" =
     │   let a = new A(20);               │          │
     │   let b = a evolves B(22).?;       │          │
     │   b == a                           │          │
+    │ }                                  │          │
+    │                                    │          │
+    ├────────────────────────────────────┼──────────┤
+    │ module A {                         │ (Int 10) │
+    │   const x = 10;                    │          │
+    │                                    │          │
+    │   fun getX() : int { x }           │          │
+    │ }                                  │          │
+    │ fun main() : int {                 │          │
+    │   A.getX()                         │          │
     │ }                                  │          │
     │                                    │          │
     └────────────────────────────────────┴──────────┘

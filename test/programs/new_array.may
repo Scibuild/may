@@ -1,0 +1,19 @@
+module Std {
+  module String {
+    extern fun print([]char) : unit = "internal_may_print_string";
+  }
+
+  module Int {
+    extern fun print(int) : unit = "internal_may_print_int";
+
+    fun println(x : int) : unit {
+      print(x);
+      String.print("\n")
+    }
+  }
+}
+
+fun main(): unit {
+  let a = new [6]int(0);
+  Std.Int.println(a[1]);
+}

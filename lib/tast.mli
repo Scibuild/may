@@ -40,6 +40,11 @@ module Expr : sig
         { expr : t
         ; index : t
         }
+    | Array_subrange of
+        { expr : t
+        ; from : t
+        ; to_ : t
+        }
     | Let of
         { local : Resolved_ident.Local.t
         ; expr : t
@@ -61,6 +66,10 @@ module Expr : sig
     | New of
         { class_id : Type.Class_id.t
         ; arguments : t list
+        }
+    | New_array of
+        { size : t
+        ; init : t
         }
     | Evolves of
         { expr : t
@@ -93,6 +102,10 @@ module Expr : sig
         ; or_else : t
         }
     | De_null of { lhs : t }
+    | Exchange of
+        { lhs : t
+        ; rhs : t
+        }
 
   and t =
     { kind : expr_kind
@@ -173,7 +186,7 @@ module Decl : sig
       { id : Type.Class_id.t
       ; super_type : Type.Class_id.t option
       ; fields : Field.t list
-      ; constructor : Constructor.t
+      ; constructor : Constructor.t option
       ; evolver : Constructor.t option
       ; methods : Method.t list
       ; range : Range.t

@@ -75,6 +75,8 @@ rule next_token = parse
   | "||" { PIPE_PIPE }
   | ".?" { DOT_INTER }
   | "?" { INTER }
+  | ".." { DOT_DOT }
+  | ">=<" { XCHG }
 
   | '{' { O_CURLY }
   | '}' { C_CURLY }

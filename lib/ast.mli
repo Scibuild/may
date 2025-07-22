@@ -35,6 +35,9 @@ module Type : sig
     (** [Ident] is used for lower case type names, like [bool], [int], etc.*)
     | Path of Path.t
     (** [Path] is used for references to user defined types, like [Module.Class] *)
+    | Owned of Path.t
+    (** [Owned] is used for the unique reference to the evolvable version of a class
+        [!Module.Class] *)
     | Array of
         { mut : bool
         ; elt : t
@@ -114,6 +117,11 @@ module Expr : sig
         { expr : t
         ; index : t
         }
+    | Array_subrange of
+        { expr : t
+        ; from : t
+        ; to_ : t
+        }
     | Let of
         { ident : Ident.t
         ; annot : Type.t option
@@ -136,6 +144,11 @@ module Expr : sig
         { class_ : Path.t
         ; arguments : t list
         }
+    | New_array of
+        { size : t
+        ; ty : Type.t
+        ; init : t
+        }
     | Evolves of
         { expr : t
         ; class_ : Path.t
@@ -146,6 +159,7 @@ module Expr : sig
     | If_option of
         { expr : t
         ; var : Ident.t
+        ; annot : Type.t option
         ; if_value : t
         ; if_null : t option
         }
@@ -154,6 +168,10 @@ module Expr : sig
         ; or_else : t
         }
     | De_null of { lhs : t }
+    | Exchange of
+        { expr1 : t
+        ; expr2 : t
+        }
   [@@deriving sexp_of]
 
   and t = expr_kind Node.t [@@deriving sexp_of]

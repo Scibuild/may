@@ -11,6 +11,7 @@ module Local = struct
 
   include T
   include Hashable.Make_plain (T)
+  include Comparable.Make_plain (T)
   module Table = Hashtbl.Make_plain (T)
 
   let create ~name ~id = { name; id }

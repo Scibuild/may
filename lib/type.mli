@@ -28,14 +28,16 @@ and t =
       { mut : bool
       ; elt : t
       }
-  | Fun of fun_signature (** An object is an instance of a particular class. *)
-  | Object of Class_id.t
+  | Fun of fun_signature
+  | Object of Class_id.t (** An object is an instance of a particular class. *)
+  | Owned_object of Class_id.t
   | Top_object
   | Option of t
 [@@deriving sexp_of, equal]
 
 val is_reference : t -> bool
 val class_id_exn : t -> Class_id.t
+val erase_ownership : t -> t
 
 module Class : sig
   type ty := t
@@ -68,7 +70,7 @@ module Class : sig
   type t =
     { id : Class_id.t
     ; fields : Field.t Ast.Ident.Map.t
-    ; constructor : Constructor.t
+    ; constructor : Constructor.t option
     ; evolver : Constructor.t option
     ; methods : Method.t Ast.Ident.Map.t
     ; super : Class_id.t option

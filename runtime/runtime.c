@@ -4,13 +4,13 @@
 
 void panic_index_out_of_bounds(int sl, int sc, int el, int ec)
 {
-  fprintf(stderr, "Panic! Index out of bounds at %d:%d-%d:%d", sl, sc, el, ec);
+  fprintf(stderr, "Panic! Index out of bounds at %d:%d-%d:%d\n", sl, sc, el, ec);
   abort();
 }
 
 void panic_unexpected_option_is_null(int sl, int sc, int el, int ec)
 {
-  fprintf(stderr, "Panic! Encountered unexpected null value at %d:%d-%d:%d", sl, sc, el, ec);
+  fprintf(stderr, "Panic! Encountered unexpected null value at %d:%d-%d:%d\n", sl, sc, el, ec);
   abort();
 }
 

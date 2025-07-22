@@ -74,10 +74,20 @@ module Function_compiler = struct
     | Bool | Numeric Char -> `UB
     | Bottom | Unit -> `W
     | Numeric Float -> `D
-    | Numeric Int | Array _ | Fun _ | Top_object | Option _ | Object _ -> `L
+    | Numeric Int | Array _ | Fun _ | Top_object | Option _ | Object _ | Owned_object _ ->
+      `L
   ;;
 
-  let load_of_ty ty = "load" ^ Qbe.Type.to_string (ty_to_abi_qbe ty)
+  let load_of_ty ty =
+    "load"
+    ^
+    match (ty : Type.t) with
+    | Bool | Numeric Char -> "ub"
+    | Bottom | Unit -> "uw"
+    | Numeric Float -> "d"
+    | Numeric Int | Array _ | Fun _ | Top_object | Option _ | Object _ | Owned_object _ ->
+      "l"
+  ;;
 
   let store_of_ty ty =
     let ty_str = Qbe.Type.to_string (ty_to_abi_qbe ty) in
@@ -99,8 +109,8 @@ module Function_compiler = struct
       ├─────────────────┼────────┼────────┤
       │ Bool            │ loadub │ storeb │
       │ (Numeric Char)  │ loadub │ storeb │
-      │ Bottom          │ loadw  │ storew │
-      │ Unit            │ loadw  │ storew │
+      │ Bottom          │ loaduw │ storew │
+      │ Unit            │ loaduw │ storew │
       │ (Numeric Float) │ loadd  │ stored │
       │ (Numeric Int)   │ loadl  │ storel │
       │ Top_object      │ loadl  │ storel │
@@ -223,8 +233,10 @@ module Function_compiler = struct
     `Local dst
   ;;
 
-  let add_allocate t ~size =
-    add_call_temp t ~ty:`L ~fn:(`Symbol "malloc") ~args:[ `L, `Int size ]
+  let add_allocate ?temp t ~size =
+    let temp = Option.value_or_thunk temp ~default:(fun () -> fresh_temp t) in
+    add_call t ~dst:temp ~ty:`L ~fn:(`Symbol "malloc") ~args:[ `L, size ];
+    `Local temp
   ;;
 
   let ty_to_basic_qbe ty =
@@ -234,7 +246,7 @@ module Function_compiler = struct
     | Numeric Int -> `L
     | Numeric Float -> `D
     | Numeric Char -> `W
-    | Array _ | Fun _ | Top_object | Option _ | Object _ -> `L
+    | Array _ | Fun _ | Top_object | Option _ | Object _ | Owned_object _ -> `L
   ;;
 
   let add_load_offset t ~ty ~load ~ptr ~off =
@@ -254,17 +266,26 @@ module Function_compiler = struct
       ~fn:(`Symbol name)
       ~args:
         [ `W, `Int start_pos.pos_lnum
-        ; `W, `Int start_pos.pos_cnum
+        ; `W, `Int (start_pos.pos_cnum - start_pos.pos_bol)
         ; `W, `Int end_pos.pos_lnum
-        ; `W, `Int end_pos.pos_cnum
+        ; `W, `Int (end_pos.pos_cnum - end_pos.pos_bol)
         ];
     add_hlt t
   ;;
 
-  let compile_array_indexing t ~slice ~index ~element_size ~(range : Range.t) =
+  let assert_comparison t ~lhs ~op ~rhs ~panic_name ~range =
+    let is_good = addi_temp t ~ty:`W ~op ~args:[ lhs; rhs ] () in
+    let good_block = add_block t ~name:"assert_ok" in
+    let bad_block = add_block t ~name:"assert_fail" in
+    add_jnz t ~v:is_good ~ifnz:good_block ~ifz:bad_block;
+    enter_block t bad_block;
+    add_panic t ~name:panic_name ~range;
+    enter_block t good_block
+  ;;
+
+  let check_index_in_array_bounds t ~slice ~index ~range =
     (* LAYOUT *)
-    let len_w = add_load_offset t ~ty:`W ~load:"loadw" ~ptr:slice ~off:(`Int (8 + 4)) in
-    let len = addi_temp t ~ty:`L ~op:"extuw" ~args:[ len_w ] () in
+    let len = add_load_offset t ~ty:`L ~load:"loaduw" ~ptr:slice ~off:(`Int (8 + 4)) in
     let index_is_positive = addi_temp t ~ty:`W ~op:"csgel" ~args:[ index; `Int 0 ] () in
     let index_is_in_range = addi_temp t ~ty:`W ~op:"csltl" ~args:[ index; len ] () in
     let index_is_good =
@@ -275,15 +296,33 @@ module Function_compiler = struct
     add_jnz t ~v:index_is_good ~ifnz:good_index_block ~ifz:bad_index_block;
     enter_block t bad_index_block;
     add_panic t ~name:"panic_index_out_of_bounds" ~range;
-    enter_block t good_index_block;
+    enter_block t good_index_block
+  ;;
+
+  let compile_array_indexing t ~slice ~index ~element_size ~(range : Range.t) =
+    (* LAYOUT *)
+    check_index_in_array_bounds t ~slice ~index ~range;
     let array_ptr = addi_temp t ~ty:`L ~op:"loadl" ~args:[ slice ] () in
-    let offset_w = add_load_offset t ~ty:`W ~load:"loadw" ~ptr:slice ~off:(`Int 8) in
-    let offset = addi_temp t ~ty:`L ~op:"extuw" ~args:[ offset_w ] () in
-    let underlying_index = addi_temp t ~ty:`L ~op:"add" ~args:[ slice; offset ] () in
+    let offset = add_load_offset t ~ty:`L ~load:"loaduw" ~ptr:slice ~off:(`Int 8) in
+    let underlying_index = addi_temp t ~ty:`L ~op:"add" ~args:[ index; offset ] () in
     let underlying_offset =
       addi_temp t ~ty:`L ~op:"mul" ~args:[ underlying_index; `Int element_size ] ()
     in
     addi_temp t ~ty:`L ~op:"add" ~args:[ array_ptr; underlying_offset ] ()
+  ;;
+
+  let add_ext_to_l t ~ty ~src =
+    let suffix =
+      match (ty : Type.t) with
+      | Bool | Numeric Char -> Some "ub"
+      | Bottom | Unit -> Some "uw"
+      | Numeric Float
+      | Numeric Int
+      | Array _ | Fun _ | Top_object | Option _ | Object _ | Owned_object _ -> None
+    in
+    match suffix with
+    | None -> src
+    | Some s -> addi_temp t ~ty:(ty_to_basic_qbe ty) ~op:("ext" ^ s) ~args:[ src ] ()
   ;;
 
   let rec compile (t : t) ~(expr : Tast.Expr.t) : Qbe.Value.t =
@@ -448,7 +487,9 @@ module Function_compiler = struct
     | Tast.Expr.Array_subscript { expr = sub_expr; index } ->
       (* LAYOUT *)
       let array_ptr_ref = compile t ~expr:sub_expr in
-      let index_value = compile t ~expr:index in
+      let index_value =
+        add_ext_to_l t ~ty:(Tast.Expr.ty index) ~src:(compile t ~expr:index)
+      in
       let ty = Tast.Expr.ty expr in
       let elem_ptr =
         compile_array_indexing
@@ -459,6 +500,46 @@ module Function_compiler = struct
           ~range:(Tast.Expr.range index)
       in
       addi_temp t ~ty:(ty_to_basic_qbe ty) ~op:(load_of_ty ty) ~args:[ elem_ptr ] ()
+    | Tast.Expr.Array_subrange { expr = sub_expr; from; to_ } ->
+      (* LAYOUT *)
+      let array_ptr_ref = compile t ~expr:sub_expr in
+      let from_value = compile t ~expr:from in
+      let to_value = compile t ~expr:to_ in
+      check_index_in_array_bounds
+        t
+        ~slice:array_ptr_ref
+        ~index:from_value
+        ~range:(Tast.Expr.range from);
+      check_index_in_array_bounds
+        t
+        ~slice:array_ptr_ref
+        ~index:to_value
+        ~range:(Tast.Expr.range to_);
+      assert_comparison
+        t
+        ~lhs:from_value
+        ~op:"cslel"
+        ~rhs:to_value
+        ~range:(Tast.Expr.range to_)
+        ~panic_name:"panic_subrange_invalid";
+      let result = add_allocate t ~size:(`Int 16) in
+      let array_ptr =
+        add_load_offset t ~ty:`L ~load:"loadl" ~ptr:array_ptr_ref ~off:(`Int 0)
+      in
+      let offset =
+        add_load_offset t ~ty:`W ~load:"loadw" ~ptr:array_ptr_ref ~off:(`Int 8)
+      in
+      let new_offset = addi_temp t ~ty:`W ~op:"add" ~args:[ from_value; offset ] () in
+      let new_length_minus_one =
+        addi_temp t ~ty:`W ~op:"sub" ~args:[ to_value; from_value ] ()
+      in
+      let new_length =
+        addi_temp t ~ty:`W ~op:"add" ~args:[ new_length_minus_one; `Int 0 ] ()
+      in
+      add_store_offset t ~store:"storel" ~ptr:result ~off:(`Int 0) ~v:array_ptr;
+      add_store_offset t ~store:"storew" ~ptr:result ~off:(`Int 8) ~v:new_offset;
+      add_store_offset t ~store:"storew" ~ptr:result ~off:(`Int 12) ~v:new_length;
+      result
     | Tast.Expr.Lit_array elements ->
       let len = List.length elements in
       let elem_ty =
@@ -468,8 +549,8 @@ module Function_compiler = struct
       in
       let size = size_of_ty elem_ty in
       (* LAYOUT *)
-      let slice = add_allocate t ~size:16 in
-      let array = add_allocate t ~size:(size * len) in
+      let slice = add_allocate t ~size:(`Int 16) in
+      let array = add_allocate t ~size:(`Int (size * len)) in
       add_store_offset t ~store:"storel" ~ptr:slice ~off:(`Int 0) ~v:array;
       add_store_offset t ~store:"storew" ~ptr:slice ~off:(`Int 8) ~v:(`Int 0);
       add_store_offset t ~store:"storew" ~ptr:slice ~off:(`Int 12) ~v:(`Int len);
@@ -500,7 +581,7 @@ module Function_compiler = struct
       let argument_values = compile_function_arguments t arguments in
       let size = Class_layout.max_fields_size t.class_layout ~class_id in
       (* LAYOUT *)
-      let object_value = add_allocate t ~size:(size + 8) in
+      let object_value = add_allocate t ~size:(`Int (size + 8)) in
       (* Null initialise the vtable for safety vibes *)
       add_store_offset t ~store:"storel" ~ptr:object_value ~off:(`Int 0) ~v:(`Int 0);
       let constructor_value = `Symbol (constructor_of_class t.class_env ~class_id) in
@@ -580,12 +661,68 @@ module Function_compiler = struct
       add_jmp t ~block:or_ok_block;
       enter_block t or_ok_block;
       `Local value_reg
+    | Tast.Expr.New_array { size; init } ->
+      let size_value =
+        add_ext_to_l t ~ty:(Tast.Expr.ty size) ~src:(compile t ~expr:size)
+      in
+      let size_value_reg = fresh_temp t in
+      add_copy t ~dst:size_value_reg ~src:size_value ~ty:`L;
+      let slice = add_allocate t ~size:(`Int 16) in
+      let elt_ty =
+        match Tast.Expr.ty expr with
+        | Array { mut = _; elt = ty } -> ty
+        | _ -> failwith "unreachable"
+      in
+      let elt_size = size_of_ty elt_ty in
+      let array_buf_size =
+        addi_temp t ~ty:`L ~op:"mul" ~args:[ size_value; `Int elt_size ] ()
+      in
+      let array_buf_reg = fresh_temp t in
+      let array_buf = add_allocate ~temp:array_buf_reg t ~size:array_buf_size in
+      add_store_offset t ~store:"storel" ~ptr:slice ~off:(`Int 0) ~v:array_buf;
+      add_store_offset t ~store:"storew" ~ptr:slice ~off:(`Int 8) ~v:(`Int 0);
+      add_store_offset t ~store:"storew" ~ptr:slice ~off:(`Int 12) ~v:size_value;
+      let loop_start_block = add_block t ~name:"array_init_loop_begin" in
+      let loop_exit_block = add_block t ~name:"array_init_loop_exit" in
+      let init_value = compile t ~expr:init in
+      add_jmp t ~block:loop_start_block;
+      enter_block t loop_start_block;
+      add_store_offset
+        t
+        ~store:(store_of_ty elt_ty)
+        ~ptr:array_buf
+        ~off:(`Int 0)
+        ~v:init_value;
+      addi
+        t
+        ~ty:`L
+        ~v:array_buf_reg
+        ~op:"add"
+        ~args:[ `Local array_buf_reg; `Int elt_size ]
+        ();
+      addi t ~ty:`L ~v:size_value_reg ~op:"sub" ~args:[ `Local size_value_reg; `Int 1 ] ();
+      add_jnz t ~v:(`Local size_value_reg) ~ifz:loop_exit_block ~ifnz:loop_start_block;
+      enter_block t loop_exit_block;
+      slice
+    | Tast.Expr.Exchange { lhs; rhs } ->
+      let load_lhs, store_lhs = compile_load_store_pair t ~lhs in
+      let load_rhs, store_rhs = compile_load_store_pair t ~lhs:rhs in
+      let lhs_value = load_lhs () in
+      let rhs_value = load_rhs () in
+      store_rhs lhs_value;
+      store_lhs rhs_value;
+      `Int 0
 
-  and compile_assignment_to t ~(lhs : Tast.Expr.t) ~rvalue =
+  and compile_assignment_to t ~lhs ~rvalue =
+    let _, store = compile_load_store_pair t ~lhs in
+    store rvalue
+
+  and compile_load_store_pair t ~(lhs : Tast.Expr.t) =
     match Tast.Expr.kind lhs with
     | Local local ->
       let ty = ty_to_basic_qbe (Tast.Expr.ty lhs) in
-      add_copy t ~ty ~dst:(reg_of_local local) ~src:rvalue
+      ( (fun () -> addi_temp t ~ty ~op:"copy" ~args:[ `Local (reg_of_local local) ] ())
+      , fun rvalue -> add_copy t ~ty ~dst:(reg_of_local local) ~src:rvalue )
     | Tast.Expr.Array_subscript { expr = sub_expr; index } ->
       let array_ptr_ref = compile t ~expr:sub_expr in
       let index_value = compile t ~expr:index in
@@ -598,23 +735,35 @@ module Function_compiler = struct
           ~element_size:(size_of_ty ty)
           ~range:(Tast.Expr.range index)
       in
-      add_store_offset
-        t
-        ~store:(store_of_ty (Tast.Expr.ty lhs))
-        ~ptr:elem_ptr
-        ~off:(`Int 0)
-        ~v:rvalue
+      ( (fun () ->
+          add_load_offset
+            t
+            ~load:(load_of_ty ty)
+            ~ty:(ty_to_basic_qbe ty)
+            ~ptr:elem_ptr
+            ~off:(`Int 0))
+      , fun rvalue ->
+          add_store_offset t ~store:(store_of_ty ty) ~ptr:elem_ptr ~off:(`Int 0) ~v:rvalue
+      )
     | Tast.Expr.Field_subscript { expr = sub_expr; field } ->
       let obj_value = compile t ~expr:sub_expr in
       let class_id = Type.class_id_exn (Tast.Expr.ty sub_expr) in
       let offset = Class_layout.field_offset t.class_layout ~class_id ~field in
       let ty = Tast.Expr.ty sub_expr in
-      add_store_offset
-        t
-        ~store:(store_of_ty ty)
-        ~ptr:obj_value
-        ~off:(`Int (8 (* vtable *) + offset))
-        ~v:rvalue
+      ( (fun () ->
+          add_load_offset
+            t
+            ~ty:(ty_to_basic_qbe ty)
+            ~load:(load_of_ty ty)
+            ~ptr:obj_value
+            ~off:(`Int (8 (* vtable *) + offset)))
+      , fun rvalue ->
+          add_store_offset
+            t
+            ~store:(store_of_ty ty)
+            ~ptr:obj_value
+            ~off:(`Int (8 (* vtable *) + offset))
+            ~v:rvalue )
     | Tast.Expr.Lit_int _
     | Tast.Expr.Lit_string _
     | Tast.Expr.Lit_bool _
@@ -642,7 +791,10 @@ module Function_compiler = struct
     | Tast.Expr.Null
     | Tast.Expr.If_option _
     | Tast.Expr.Or_else _
-    | Tast.Expr.De_null _ -> failwith "unimplemented"
+    | Tast.Expr.De_null _
+    | Tast.Expr.New_array _
+    | Tast.Expr.Exchange _
+    | Tast.Expr.Array_subrange _ -> failwith "unreachable"
 
   and compile_function_arguments t arguments =
     List.map arguments ~f:(fun expr ->
@@ -854,7 +1006,7 @@ module Compilation_unit = struct
           { id; super_type; methods; fields = _; constructor; evolver; range = _ }
     =
     let class_env = t.class_env in
-    compile_constructor t ~class_id:id ~class_env constructor;
+    Option.iter constructor ~f:(compile_constructor t ~class_id:id ~class_env);
     Option.iter evolver ~f:(fun evolver ->
       compile_evolver
         t

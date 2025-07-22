@@ -41,7 +41,20 @@ module Global_id = Resolved_ident.Global.Id
 module Global_env = Env.Make (Global_id)
 module Class_env = Env.Make (Type.Class_id)
 
-module Constructor_state = struct
+module Constructor_state : sig
+  type t = private
+    { uninitialised_fields : Ast.Ident.Set.t
+    ; needs_super : bool
+    ; vtable_initialised : bool
+    }
+  [@@deriving equal, sexp_of]
+
+  val create : class_signature:Type.Class.t -> needs_super:bool -> t ref
+  val try_initialise_field : t ref -> field:Ast.Ident.t -> bool
+  val is_complete : t -> bool
+  val initialise_vtable : t ref -> unit
+  val initialise_super : t ref -> unit
+end = struct
   type t =
     { uninitialised_fields : Ast.Ident.Set.t
     ; needs_super : bool
@@ -73,6 +86,9 @@ module Constructor_state = struct
     | { uninitialised_fields; needs_super = false; _ } ->
       Set.is_empty uninitialised_fields
   ;;
+
+  let initialise_vtable cs = cs := { !cs with vtable_initialised = true }
+  let initialise_super cs = cs := { !cs with needs_super = false }
 end
 
 module Function_check = struct
@@ -80,7 +96,7 @@ module Function_check = struct
     { local_env : (Resolved_ident.Local.t * int) Ast.Ident.Map.t
     ; scope_level : int
     ; return_type : Type.t
-    ; local_types : Type.t Resolved_ident.Local.Table.t
+    ; local_types : Type.t Resolved_ident.Local.Map.t ref
       (* I'm not really sure what the best way to do this is, the idea of the 
      constructor state is that it keeps track of the initialised fields in a 
      constructor. It should be possible to write to read-only fields if they 
@@ -93,7 +109,7 @@ module Function_check = struct
     { local_env = Ast.Ident.Map.empty
     ; scope_level = 0
     ; return_type
-    ; local_types = Resolved_ident.Local.Table.create ()
+    ; local_types = ref Resolved_ident.Local.Map.empty
     ; this_id
     ; constructor_state
     }
@@ -111,13 +127,14 @@ module Function_check = struct
             ]
       | None | Some _ -> Ok ()
     in
+    let local_types = !(t.local_types) in
     let fresh_local =
-      Resolved_ident.Local.create ~name:ident ~id:(Hashtbl.length t.local_types)
+      Resolved_ident.Local.create ~name:ident ~id:(Map.length local_types)
     in
     let new_local_env =
       Map.set t.local_env ~key:ident ~data:(fresh_local, t.scope_level)
     in
-    Hashtbl.add_exn t.local_types ~key:fresh_local ~data:ty;
+    t.local_types := Map.add_exn local_types ~key:fresh_local ~data:ty;
     Ok ({ t with local_env = new_local_env }, fresh_local)
   ;;
 
@@ -126,7 +143,11 @@ module Function_check = struct
   let resolve_local t ~ident =
     let resolved = Map.find t.local_env ident in
     Option.map resolved ~f:(fun (resolved, _) ->
-      resolved, Hashtbl.find_exn t.local_types resolved)
+      resolved, Map.find_exn !(t.local_types) resolved)
+  ;;
+
+  let update_type t ~local ~ty =
+    t.local_types := Map.set !(t.local_types) ~key:local ~data:ty
   ;;
 end
 
@@ -137,20 +158,23 @@ type t =
   ; class_env : Class_env.t
   ; class_table : Type.Class.t Type.Class_id.Table.t
   ; scope : Ast.Ident.t list
+  ; mode : Mode.t
   }
 [@@deriving fields ~getters]
 
-let empty () =
+let empty ~mode =
   { function_check = None
   ; global_env = Global_env.create ()
   ; global_types = Global_id.Table.create ()
   ; class_env = Class_env.create ()
   ; class_table = Type.Class_id.Table.create ()
   ; scope = []
+  ; mode
   }
 ;;
 
-let with_module_scope t ~name = { t with scope = t.scope @ [ name ] }
+let with_new_module_scope t ~name = { t with scope = t.scope @ [ name ] }
+let with_module_scope t ~scope = { t with scope }
 let resolve_class t ~class_id = Hashtbl.find_exn t.class_table class_id
 
 module Type = struct
@@ -189,7 +213,7 @@ module Type = struct
       (match args_check with
        | Ok v -> v
        | Unequal_lengths -> false)
-    | Object subclass_id, Object superclass_id ->
+    | (Object subclass_id | Owned_object subclass_id), Object superclass_id ->
       (match Class_id.equal subclass_id superclass_id with
        | true -> true
        | false ->
@@ -197,7 +221,7 @@ module Type = struct
          (match subclass.super with
           | Some subclass_super_id -> is_subtype t ~sub:(Object subclass_super_id) ~super
           | None -> false))
-    | Object _, Top_object -> true
+    | (Object _ | Owned_object _), Top_object -> true
     | Top_object, Top_object -> true
     | Option sub, Option super | sub, Option super -> is_subtype t ~sub ~super
     | _ -> equal sub super
@@ -412,29 +436,85 @@ module Class = struct
   ;;
 
   let _ = type_super
+end
 
-  (* TODO: There are so many things about how these constructors work that feels
-     so icky. This is definitely one of them. *)
+module Typestate : sig
+  type check := t
+  type t
 
-  let save_constructor_state t =
-    let%bind.Option function_check = t.function_check in
-    let%bind.Option cs = function_check.constructor_state in
-    Some !cs
+  val save : check -> t
+  val restore : check -> t -> unit
+  val assert_equal : check -> range:Range.t -> t -> t -> (unit, Comp_error.t) result
+end = struct
+  type t =
+    | Not_in_function
+    | Typestate of Constructor_state.t option * Type.t Resolved_ident.Local.Map.t
+
+  let save t =
+    match t.function_check with
+    | None -> Not_in_function
+    | Some function_check ->
+      Typestate
+        ( Option.map function_check.constructor_state ~f:( ! )
+        , !(function_check.local_types) )
   ;;
 
-  let restore_constructor_state t constructor_state_opt =
-    Option.iter constructor_state_opt ~f:(fun constructor_state ->
-      (* We should only have a constructor state if we are checking a function. *)
-      let function_check = t.function_check |> Option.value_exn in
-      (* Similarly, we should have a constructor state. *)
-      let cs = function_check.constructor_state |> Option.value_exn in
-      cs := constructor_state)
+  let restore t ts =
+    match ts with
+    | Not_in_function -> ()
+    | Typestate (cs, tys) ->
+      (* We must be in a function. *)
+      let function_check = Option.value_exn t.function_check in
+      (match cs with
+       | None -> ()
+       | Some cs ->
+         (* Similarly, we should have a constructor state. *)
+         Option.value_exn function_check.constructor_state := cs);
+      let curr_tys = !(function_check.local_types) in
+      function_check.local_types
+      := Map.merge_skewed tys curr_tys ~combine:(fun ~key:_ ty1 _ -> ty1)
   ;;
 
-  let assert_constructor_states_equal ~range ~msg cs1 cs2 =
-    Result.ok_if_true
-      ([%equal: Constructor_state.t option] cs1 cs2)
-      ~error:(create_type_error ~range ~msg)
+  let assert_equal t ~range ts1 ts2 =
+    match ts1, ts2 with
+    | Not_in_function, Not_in_function -> Ok ()
+    | Not_in_function, _ | _, Not_in_function ->
+      failwith "compiler bug, comparing typestates from inside and outside a function"
+    | Typestate (cs1, tys1), Typestate (cs2, tys2) ->
+      let cs_eq = [%equal: Constructor_state.t option] cs1 cs2 in
+      let tys_compatible =
+        Map.fold_symmetric_diff
+          tys1
+          tys2
+          ~data_equal:Type.equal
+          ~init:[]
+          ~f:(fun acc diff ->
+            match snd diff with
+            | `Left _ | `Right _ -> acc
+            | `Unequal (ty1, ty2) -> (fst diff, ty1, ty2) :: acc)
+      in
+      let%bind.Result () =
+        Result.ok_if_true
+          cs_eq
+          ~error:
+            (create_type_error
+               ~range
+               ~msg:[ Text "Field initialisation does not match on diverging branches" ])
+      in
+      (match tys_compatible with
+       | [] -> Ok ()
+       | (local, ty1, ty2) :: _ ->
+         create_type_error_result
+           ~range
+           ~msg:
+             [ Text "Local variable "
+             ; Text (Resolved_ident.Local.to_string local)
+             ; Text " ends with type "
+             ; Type.code_str t ty1
+             ; Text " on one branch, but type "
+             ; Type.code_str t ty2
+             ; Text " on another"
+             ])
   ;;
 end
 
@@ -472,16 +552,21 @@ let lookup_global t ~(path : Ast.Path.t) ~range =
   global_id, Hashtbl.find_exn t.global_types global_id
 ;;
 
-let lookup_path t ~(path : Ast.Path.t) ~range =
-  let (path_hd :: path_tl) = path |> Ast.Path.to_nonempty_list in
-  let resolved_local_opt =
-    Option.bind t.function_check ~f:(fun function_check ->
-      (* We check if the path contains just a single name. If it does, then this 
+let lookup_local_ident t ~(ident : Ast.Ident.t) =
+  Option.bind t.function_check ~f:(fun function_check ->
+    (* We check if the path contains just a single name. If it does, then this 
       could be a local. *)
-      match List.is_empty path_tl with
-      | false -> None
-      | true -> Function_check.resolve_local function_check ~ident:path_hd)
-  in
+    Function_check.resolve_local function_check ~ident)
+;;
+
+let lookup_local_path t ~path =
+  match Ast.Path.to_nonempty_list path with
+  | [ ident ] -> lookup_local_ident t ~ident
+  | _ -> None
+;;
+
+let lookup_path t ~(path : Ast.Path.t) ~range =
+  let resolved_local_opt = lookup_local_path t ~path in
   match resolved_local_opt with
   | Some (resolved_local, ty) -> Ok (Tast.Expr.Local resolved_local, ty)
   | None ->
@@ -495,6 +580,10 @@ let lookup_class t ~path ~range =
        ~stage:Type_checker
        ~range
        ~msg:[ Text "Unknown type identifier "; Path path ]
+;;
+
+let update_local_type t ~local ~ty =
+  Function_check.update_type (Option.value_exn t.function_check) ~local ~ty
 ;;
 
 let rec check_type t (ast_ty : Ast.Type.t) =
@@ -513,6 +602,15 @@ let rec check_type t (ast_ty : Ast.Type.t) =
   | Path path ->
     let%map class_id = lookup_class t ~path ~range in
     Type.Object class_id
+  | Owned path ->
+    let%bind () =
+      match t.mode with
+      | Mode.With_ownership -> Ok ()
+      | Mode.Without ->
+        create_type_error_result ~range ~msg:[ Text "Ownership types are disabled" ]
+    in
+    let%map class_id = lookup_class t ~path ~range in
+    Type.Owned_object class_id
   | Array { mut; elt } ->
     let%bind elt = check_type t elt in
     return (Type.Array { mut; elt })
@@ -552,7 +650,7 @@ let check_vtable_update t ~range ~(expr : Tast.Expr.t) =
         | false -> Ok expr
         | true ->
           let this_id = Option.value_exn function_check.this_id in
-          constructor_state := { !constructor_state with vtable_initialised = true };
+          Constructor_state.initialise_vtable constructor_state;
           Ok
             (Tast.Expr.create
                ~expr:(Update_this_vtable_after { expr; new_table = this_id })
@@ -562,16 +660,13 @@ let check_vtable_update t ~range ~(expr : Tast.Expr.t) =
 
 let rec check_expr t ~ty ~(term : Ast.Expr.t) =
   let Ast.Node.{ data; range } = term in
+  let check_infer () =
+    let%bind Tast.Expr.{ ty = inferred_ty; kind; range } = infer_expr t ~term in
+    let%bind () = Type.check_subtype t ~range ~sub:inferred_ty ~super:ty in
+    return (Tast.Expr.create ~expr:kind ~range ~ty)
+  in
   match data with
-  | Lit_int _
-  | Lit_string _
-  | Ident _
-  | Bin_op _
-  | Un_op _
-  | Lit_bool _
-  | Lit_char _
-  | This
-  | Super
+  | Lit_int _ | Lit_string _ | Bin_op _ | Un_op _ | Lit_bool _ | Lit_char _ | This | Super
   | If { cond = _; if_then = _; if_else = None }
   | If_option _
   | Or_else _
@@ -579,6 +674,8 @@ let rec check_expr t ~ty ~(term : Ast.Expr.t) =
   | While _
   | Field_subscript _
   | Array_subscript _
+  | Array_subrange _
+  | New_array _
   | Let _
   | Assign _
   | Function_call _
@@ -587,29 +684,45 @@ let rec check_expr t ~ty ~(term : Ast.Expr.t) =
   | Return _
   | New _
   | Evolves _
-  | Unit ->
-    let%bind typed_ast = infer_expr t ~term in
-    let inferred_ty = Tast.Expr.ty typed_ast in
-    let%bind () = Type.check_subtype t ~range ~sub:inferred_ty ~super:ty in
-    return typed_ast
+  | Exchange _
+  | Unit -> check_infer ()
+  | Ident path ->
+    let create_updated_local ~class_id ~ident_class_id ~local ~ty ~new_ty =
+      match Type.Class_id.equal class_id ident_class_id with
+      | true ->
+        update_local_type t ~local ~ty:new_ty;
+        return (Tast.Expr.create ~expr:(Tast.Expr.Local local) ~range ~ty)
+      | false -> check_infer ()
+    in
+    (match ty, lookup_local_path t ~path with
+     (* If we check against an owned typed [!A] then we can strip the permission from the
+       local variable and pass it to the checking hole. *)
+     | ( (Owned_object class_id | Option (Owned_object class_id))
+       , Some (local, (Owned_object ident_class_id as ty)) ) ->
+       create_updated_local
+         ~class_id
+         ~ident_class_id
+         ~local
+         ~ty
+         ~new_ty:(Object ident_class_id)
+     | ( Option (Owned_object class_id)
+       , Some (local, (Option (Owned_object ident_class_id) as ty)) ) ->
+       create_updated_local
+         ~class_id
+         ~ident_class_id
+         ~local
+         ~ty
+         ~new_ty:(Option (Object ident_class_id))
+     | _ -> check_infer ())
   | If { cond; if_then; if_else = Some if_else } ->
     let%bind checked_cond = check_expr t ~ty:Type.Bool ~term:cond in
-    let old_constructor_state = Class.save_constructor_state t in
+    let old_typestate = Typestate.save t in
     let%bind checked_then = check_expr t ~ty ~term:if_then in
-    let if_then_constructor_state = Class.save_constructor_state t in
-    Class.restore_constructor_state t old_constructor_state;
+    let if_then_typestate = Typestate.save t in
+    Typestate.restore t old_typestate;
     let%bind checked_else = check_expr t ~ty ~term:if_else in
-    let if_else_constructor_state = Class.save_constructor_state t in
-    let%bind () =
-      Result.ok_if_true
-        ([%equal: Constructor_state.t option]
-           if_else_constructor_state
-           if_then_constructor_state)
-        ~error:
-          (create_type_error
-             ~range
-             ~msg:[ Text "If branches initialise different fields" ])
-    in
+    let if_else_typestate = Typestate.save t in
+    let%bind () = Typestate.assert_equal t if_else_typestate if_then_typestate ~range in
     return
       (Tast.Expr.create
          ~expr:
@@ -663,12 +776,12 @@ and infer_expr t ~(term : Ast.Expr.t) =
     return (Tast.Expr.create ~expr ~range ~ty) *)
   | Ident path ->
     let%bind resolved, ty = lookup_path t ~path ~range in
-    return (Tast.Expr.create ~expr:resolved ~range ~ty)
+    return (Tast.Expr.create ~expr:resolved ~range ~ty:(Type.erase_ownership ty))
   | Bin_op { lhs; rhs; op } ->
     let%bind lhs_typed = infer_expr t ~term:lhs in
-    let pre_rhs_cs = Class.save_constructor_state t in
+    let pre_rhs_cs = Typestate.save t in
     let%bind rhs_typed = infer_expr t ~term:rhs in
-    let post_rhs_cs = Class.save_constructor_state t in
+    let post_rhs_cs = Typestate.save t in
     let lhs_ty = Tast.Expr.ty lhs_typed in
     let rhs_ty = Tast.Expr.ty rhs_typed in
     let%bind result_type =
@@ -678,13 +791,7 @@ and infer_expr t ~(term : Ast.Expr.t) =
       | (Lt | Gt | Ge | Le), (Numeric lhs_num, Numeric rhs_num)
         when Type.Numeric.equal lhs_num rhs_num -> return Type.Bool
       | (And | Or), (Bool, Bool) ->
-        let%bind () =
-          Class.assert_constructor_states_equal
-            ~range
-            ~msg:[ Text "Cannot initialise object in RHS of short circuiting operator" ]
-            pre_rhs_cs
-            post_rhs_cs
-        in
+        let%bind () = Typestate.assert_equal t ~range pre_rhs_cs post_rhs_cs in
         return Type.Bool
       | (Eq | Ne), _ ->
         let%bind () = Type.check_comparable t ~range ~lhs:lhs_ty ~rhs:rhs_ty in
@@ -770,14 +877,10 @@ and infer_expr t ~(term : Ast.Expr.t) =
     aux t exprs []
   | If { cond; if_then; if_else = None } ->
     let%bind checked_cond = check_expr t ~ty:Type.Bool ~term:cond in
-    let old_constructor_state = Class.save_constructor_state t in
+    let old_typestate = Typestate.save t in
     let%bind checked_then = check_expr t ~ty:Type.Unit ~term:if_then in
-    let new_constructor_state = Class.save_constructor_state t in
-    let%bind () =
-      Result.ok_if_true
-        ([%equal: Constructor_state.t option] old_constructor_state new_constructor_state)
-        ~error:(create_type_error ~range ~msg:[ Text "If branch initialises fields" ])
-    in
+    let new_typestate = Typestate.save t in
+    let%bind () = Typestate.assert_equal t old_typestate new_typestate ~range in
     let else_unit = Tast.Expr.create ~expr:Unit ~range ~ty:Type.Unit in
     return
       (Tast.Expr.create
@@ -786,19 +889,13 @@ and infer_expr t ~(term : Ast.Expr.t) =
          ~ty:Type.Unit)
   | If { cond; if_then; if_else = Some if_else } ->
     let%bind checked_cond = check_expr t ~ty:Type.Bool ~term:cond in
-    let old_constructor_state = Class.save_constructor_state t in
+    let old_typestate = Typestate.save t in
     let%bind checked_then = infer_expr t ~term:if_then in
-    let if_then_constructor_state = Class.save_constructor_state t in
-    Class.restore_constructor_state t old_constructor_state;
+    let if_then_typestate = Typestate.save t in
+    Typestate.restore t old_typestate;
     let%bind checked_else = infer_expr t ~term:if_else in
-    let if_else_constructor_state = Class.save_constructor_state t in
-    let%bind () =
-      Class.assert_constructor_states_equal
-        ~range
-        ~msg:[ Text "If branches initialise different fields" ]
-        if_then_constructor_state
-        if_else_constructor_state
-    in
+    let if_else_typestate = Typestate.save t in
+    let%bind () = Typestate.assert_equal t ~range if_then_typestate if_else_typestate in
     let%bind result_ty =
       (* TODO: Think about removing this and instead requiring all upcasts of this
          nature to be explicit. *)
@@ -812,16 +909,10 @@ and infer_expr t ~(term : Ast.Expr.t) =
          ~ty:result_ty)
   | While { cond; block } ->
     let%bind checked_cond = check_expr t ~ty:Type.Bool ~term:cond in
-    let old_constructor_state = Class.save_constructor_state t in
+    let old_typestate = Typestate.save t in
     let%bind checked_block = check_expr t ~ty:Type.Unit ~term:block in
-    let new_constructor_state = Class.save_constructor_state t in
-    let%bind () =
-      Class.assert_constructor_states_equal
-        ~range
-        ~msg:[ Text "While loop initialises fields" ]
-        old_constructor_state
-        new_constructor_state
-    in
+    let new_typestate = Typestate.save t in
+    let%bind () = Typestate.assert_equal t ~range old_typestate new_typestate in
     return
       (Tast.Expr.create
          ~expr:(While { cond = checked_cond; block = checked_block })
@@ -841,6 +932,37 @@ and infer_expr t ~(term : Ast.Expr.t) =
     check_vtable_update t ~range ~expr:new_expr
   | Array_subscript { expr; index } ->
     check_array_subscript t ~range ~expr ~index ~mode:`Read
+  | Array_subrange { expr; from; to_ } ->
+    let%bind checked_expr = infer_expr t ~term:expr in
+    let%bind array_ty =
+      match Tast.Expr.ty checked_expr with
+      | Array _ as array_ty -> return array_ty
+      | invalid_ty ->
+        create_type_error_result
+          ~range
+          ~msg:[ Text "Cannot index non-array type "; Type.code_str t invalid_ty ]
+    in
+    let assert_integral ~expr =
+      Result.ok_if_true
+        (Type.is_integral (Tast.Expr.ty expr))
+        ~error:
+          (create_type_error
+             ~range:(Tast.Expr.range expr)
+             ~msg:
+               [ Text "Cannot index array by non-integral type "
+               ; Type.code_str t (Tast.Expr.ty expr)
+               ])
+    in
+    let%bind checked_from = infer_expr t ~term:from in
+    let%bind checked_to = infer_expr t ~term:to_ in
+    let%bind () = assert_integral ~expr:checked_from in
+    let%bind () = assert_integral ~expr:checked_to in
+    return
+      (Tast.Expr.create
+         ~expr:
+           (Array_subrange { expr = checked_expr; from = checked_from; to_ = checked_to })
+         ~range
+         ~ty:array_ty)
   | Return expr ->
     let%bind function_check =
       t.function_check
@@ -864,6 +986,26 @@ and infer_expr t ~(term : Ast.Expr.t) =
          ~expr:(Lit_array (checked_hd :: checked_tl))
          ~range
          ~ty:(Type.Array { mut = true; elt = elt_ty }))
+  | New_array { size; ty; init } ->
+    let%bind checked_ty = check_type t ty in
+    let%bind checked_size = infer_expr t ~term:size in
+    let%bind () =
+      Result.ok_if_true
+        (Type.is_integral (Tast.Expr.ty checked_size))
+        ~error:
+          (create_type_error
+             ~range
+             ~msg:
+               [ Text "Cannot describe array size with non-integral type "
+               ; Type.code_str t (Tast.Expr.ty checked_size)
+               ])
+    in
+    let%bind checked_init = check_expr t ~ty:checked_ty ~term:init in
+    return
+      (Tast.Expr.create
+         ~expr:(New_array { size = checked_size; init = checked_init })
+         ~range
+         ~ty:(Array { mut = true; elt = checked_ty }))
   | Field_subscript { expr; field } ->
     let%bind checked_expr = infer_expr t ~term:expr in
     let%bind ty = infer_field t ~range ~term:checked_expr ~field ~mode:`Read in
@@ -890,7 +1032,11 @@ and infer_expr t ~(term : Ast.Expr.t) =
     (* This can't throw because we know a super constructor is needed. *)
     let super_class_id = class_signature.super |> Option.value_exn in
     let super_class_signature = resolve_class t ~class_id:super_class_id in
-    let super_constructor = super_class_signature.constructor in
+    let%bind super_constructor =
+      super_class_signature.constructor
+      |> Result.of_option
+           ~error:(create_type_error ~range ~msg:[ Text "Super class lacks constructor" ])
+    in
     let%bind checked_arguments =
       check_argument_list t ~range ~arg_tys:super_constructor.args ~args:arguments
     in
@@ -901,7 +1047,7 @@ and infer_expr t ~(term : Ast.Expr.t) =
       |> Result.ok_if_true ~error:(create_type_error ~range ~msg)
     in
     (* Once we've checked everything, we no longer need a super call. *)
-    constructor_state := { !constructor_state with needs_super = false };
+    Constructor_state.initialise_super constructor_state;
     let new_expr =
       Tast.Expr.create
         ~expr:(Super_call { super_id = super_class_id; arguments = checked_arguments })
@@ -976,18 +1122,32 @@ and infer_expr t ~(term : Ast.Expr.t) =
   | New { class_; arguments } ->
     let%bind class_id = lookup_class t ~path:class_ ~range in
     let class_signature = resolve_class t ~class_id in
-    let constructor = class_signature.constructor in
+    let%bind constructor =
+      class_signature.constructor
+      |> Result.of_option
+           ~error:
+             (create_type_error
+                ~range
+                ~msg:
+                  [ Text "Cannot construct instance of class without constructor "
+                  ; Path class_
+                  ])
+    in
     let%bind checked_arguments =
       check_argument_list t ~range ~arg_tys:constructor.args ~args:arguments
+    in
+    let ret_ty =
+      match t.mode with
+      | With_ownership -> Type.Owned_object class_id
+      | Without -> Type.Object class_id
     in
     return
       (Tast.Expr.create
          ~expr:(New { class_id; arguments = checked_arguments })
          ~range
-         ~ty:(Type.Object class_id))
+         ~ty:ret_ty)
   | Evolves { expr; class_; arguments } ->
     (* TODO implement*)
-    let%bind checked_expr = infer_expr t ~term:expr in
     let%bind class_id = lookup_class t ~path:class_ ~range in
     let class_name = Class_env.find_name t.class_env ~id:class_id in
     let class_signature = resolve_class t ~class_id in
@@ -1005,32 +1165,25 @@ and infer_expr t ~(term : Ast.Expr.t) =
     (* Cannot fail since in order to have an evolves constructor, this must be
        a subclass. *)
     let super_id = class_signature.super |> Option.value_exn in
-    let checked_expr_error =
-      create_type_error
-        ~range:(Tast.Expr.range checked_expr)
-        ~msg:
-          [ Text "Expression must be an instance of "
-          ; Type.code_str t (Object super_id)
-          ; Text " to be evolved into a "
-          ; Type.code_str t (Object class_id)
-          ; Text ", but it has type "
-          ; Type.code_str t (Tast.Expr.ty checked_expr)
-          ]
+    let expected_expr_ty =
+      match t.mode with
+      | With_ownership -> Type.Owned_object super_id
+      | Without -> Type.Object super_id
     in
-    let%bind () =
-      match Tast.Expr.ty checked_expr with
-      | Object expr_id ->
-        Result.ok_if_true (Type.Class_id.equal super_id expr_id) ~error:checked_expr_error
-      | _ -> Error checked_expr_error
-    in
+    let%bind checked_expr = check_expr t ~ty:expected_expr_ty ~term:expr in
     let%bind checked_arguments =
       check_argument_list t ~range ~arg_tys:evolver.args ~args:arguments
+    in
+    let ret_ty =
+      match t.mode with
+      | With_ownership -> Type.Owned_object class_id
+      | Without -> Type.Option (Type.Object class_id)
     in
     return
       (Tast.Expr.create
          ~expr:(Evolves { expr = checked_expr; class_id; arguments = checked_arguments })
          ~range
-         ~ty:(Type.Option (Type.Object class_id)))
+         ~ty:ret_ty)
   | Null -> create_type_error_result ~range ~msg:[ Text "Cannot infer type of null" ]
   | De_null { lhs } ->
     let%bind checked_expr = infer_expr t ~term:lhs in
@@ -1053,23 +1206,24 @@ and infer_expr t ~(term : Ast.Expr.t) =
           ~range
           ~msg:[ Text "Cannot check non-optional type "; Type.code_str t invalid_ty ]
     in
-    let pre_or_else_cs = Class.save_constructor_state t in
+    let pre_or_else_cs = Typestate.save t in
     let%bind checked_or_else = check_expr t ~ty ~term:or_else in
-    let post_or_else_cs = Class.save_constructor_state t in
-    let%bind () =
-      Class.assert_constructor_states_equal
-        ~range
-        ~msg:[ Text "Cannot initialise object in RHS of short circuiting operator" ]
-        pre_or_else_cs
-        post_or_else_cs
-    in
+    let post_or_else_cs = Typestate.save t in
+    let%bind () = Typestate.assert_equal t ~range pre_or_else_cs post_or_else_cs in
     return
       (Tast.Expr.create
          ~expr:(Or_else { lhs = checked_lhs; or_else = checked_or_else })
          ~range
          ~ty)
-  | If_option { expr; if_value; if_null; var } ->
-    let%bind checked_expr = infer_expr t ~term:expr in
+  | If_option { expr; if_value; if_null; var; annot } ->
+    (* Convert the annotation to the optional version *)
+    let%bind checked_expr =
+      match annot with
+      | None -> infer_expr t ~term:expr
+      | Some ast_ty ->
+        let%bind ty = check_type t ast_ty in
+        check_expr t ~ty:(Option ty) ~term:expr
+    in
     let%bind ty =
       match Tast.Expr.ty checked_expr with
       | Option ty -> return ty
@@ -1080,18 +1234,12 @@ and infer_expr t ~(term : Ast.Expr.t) =
     in
     let%bind t_with_scope = with_new_scope t ~range in
     let%bind t_with_var, resolved_var = with_local t_with_scope ~range ~ident:var ~ty in
-    let pre_if_cs = Class.save_constructor_state t in
+    let pre_if_cs = Typestate.save t in
     (match if_null with
      | None ->
        let%bind checked_if_value = check_expr t_with_var ~term:if_value ~ty:Unit in
-       let post_if_cs = Class.save_constructor_state t in
-       let%bind () =
-         Class.assert_constructor_states_equal
-           ~range
-           ~msg:[ Text "If branch initialises fields" ]
-           pre_if_cs
-           post_if_cs
-       in
+       let post_if_cs = Typestate.save t in
+       let%bind () = Typestate.assert_equal t ~range pre_if_cs post_if_cs in
        let if_null = Tast.Expr.create ~expr:Unit ~ty:Unit ~range in
        return
          (Tast.Expr.create
@@ -1106,17 +1254,11 @@ and infer_expr t ~(term : Ast.Expr.t) =
             ~ty:Unit)
      | Some if_null ->
        let%bind checked_if_value = infer_expr t_with_var ~term:if_value in
-       let post_if_value_cs = Class.save_constructor_state t in
-       Class.restore_constructor_state t pre_if_cs;
+       let post_if_value_cs = Typestate.save t in
+       Typestate.restore t pre_if_cs;
        let%bind checked_if_null = infer_expr t ~term:if_null in
-       let post_if_null_cs = Class.save_constructor_state t in
-       let%bind () =
-         Class.assert_constructor_states_equal
-           ~range
-           ~msg:[ Text "If branches initialise different fields" ]
-           post_if_value_cs
-           post_if_null_cs
-       in
+       let post_if_null_cs = Typestate.save t in
+       let%bind () = Typestate.assert_equal t ~range post_if_value_cs post_if_null_cs in
        let%bind ty =
          Type.join t ~range (Tast.Expr.ty checked_if_value) (Tast.Expr.ty checked_if_null)
        in
@@ -1131,6 +1273,37 @@ and infer_expr t ~(term : Ast.Expr.t) =
                  })
             ~range
             ~ty))
+  | Exchange { expr1; expr2 } ->
+    let%bind () =
+      match t.mode with
+      | With_ownership -> Ok ()
+      | Without ->
+        create_type_error_result
+          ~range
+          ~msg:[ Text "The exchange operator is exclusive to the ownership mode." ]
+    in
+    let%bind checked_lhs = infer_lvalue t ~lvalue:expr1 in
+    let%bind checked_rhs = infer_lvalue t ~lvalue:expr2 in
+    let lhs_ty = Tast.Expr.ty checked_lhs in
+    let rhs_ty = Tast.Expr.ty checked_rhs in
+    let%bind () =
+      Type.equal lhs_ty rhs_ty
+      |> Result.ok_if_true
+           ~error:
+             (create_type_error
+                ~range
+                ~msg:
+                  [ Text "Cannot exchange types "
+                  ; Type.code_str t lhs_ty
+                  ; Text " and "
+                  ; Type.code_str t rhs_ty
+                  ])
+    in
+    return
+      (Tast.Expr.create
+         ~range
+         ~ty:Unit
+         ~expr:(Exchange { lhs = checked_lhs; rhs = checked_rhs }))
 
 and check_argument_list t ~range ~arg_tys ~args =
   match
@@ -1153,7 +1326,8 @@ and check_array_subscript t ~range ~expr ~index ~mode =
     match Tast.Expr.ty checked_expr with
     | Array { mut; elt } as array_ty ->
       (match mode, mut with
-       | `Read, _ | `Write, true -> return elt
+       | `Read, _ -> return (Type.erase_ownership elt)
+       | `Write, true -> return elt
        | `Write, false ->
          create_type_error_result
            ~range
@@ -1164,30 +1338,29 @@ and check_array_subscript t ~range ~expr ~index ~mode =
         ~msg:[ Text "Cannot index non-array type "; Type.code_str t invalid_ty ]
   in
   let%bind checked_index = infer_expr t ~term:index in
-  match Type.is_integral (Tast.Expr.ty checked_index) with
-  | true ->
-    return
-      (Tast.Expr.create
-         ~expr:(Array_subscript { expr = checked_expr; index = checked_index })
-         ~range
-         ~ty:elt_ty)
-  | false ->
-    create_type_error_result
-      ~range
-      ~msg:
-        [ Text "Cannot index array by non-integral type "
-        ; Type.code_str t (Tast.Expr.ty checked_index)
-        ]
+  let%bind () =
+    Result.ok_if_true
+      (Type.is_integral (Tast.Expr.ty checked_index))
+      ~error:
+        (create_type_error
+           ~range
+           ~msg:
+             [ Text "Cannot index array by non-integral type "
+             ; Type.code_str t (Tast.Expr.ty checked_index)
+             ])
+  in
+  return
+    (Tast.Expr.create
+       ~expr:(Array_subscript { expr = checked_expr; index = checked_index })
+       ~range
+       ~ty:elt_ty)
 
 and infer_with_opt_annot t ~(term : Ast.Expr.t) ~(annot : Ast.Type.t option) =
   match annot with
-  | None ->
-    let%bind checked = infer_expr t ~term in
-    return checked
+  | None -> infer_expr t ~term
   | Some ast_ty ->
     let%bind ty = check_type t ast_ty in
-    let%bind checked = check_expr t ~ty ~term in
-    return checked
+    check_expr t ~ty ~term
 
 and infer_lvalue t ~(lvalue : Ast.Expr.t) =
   let Ast.Node.{ range; data } = lvalue in
@@ -1241,6 +1414,9 @@ and infer_lvalue t ~(lvalue : Ast.Expr.t) =
   | If_option _
   | De_null _
   | Or_else _
+  | Array_subrange _
+  | New_array _
+  | Exchange _
   | Function_call _ ->
     create_type_error_result ~range ~msg:[ Text "Cannot assign to expression" ]
 
@@ -1293,7 +1469,12 @@ and infer_field t ~range ~(term : Tast.Expr.t) ~field ~mode =
                  ; Path class_path
                  ])
     in
-    Ok class_field.ty
+    let ty =
+      match mode with
+      | `Read -> Type.erase_ownership class_field.ty
+      | `Write -> class_field.ty
+    in
+    Ok ty
   | _ ->
     create_type_error_result
       ~range
@@ -1316,6 +1497,10 @@ let true_or_check v ~f =
   | false -> f ()
 ;;
 
+module Scope = struct
+  type t = Ast.Ident.t list
+end
+
 module Precheck_decl = struct
   module Function = struct
     type t =
@@ -1324,6 +1509,7 @@ module Precheck_decl = struct
       ; ret_type : Ast.Type.t
       ; body : Ast.Expr.t
       ; range : Range.t
+      ; scope : Scope.t
       }
   end
 
@@ -1334,6 +1520,7 @@ module Precheck_decl = struct
       ; range : Range.t
       ; arg_tys : Ast.Type.t list
       ; external_name : string
+      ; scope : Scope.t
       }
     [@@disable_unused_warnings]
   end
@@ -1346,6 +1533,7 @@ module Precheck_decl = struct
       ; constructors : Ast.Decl.Class.Constructor.t Ast.Node.t list
       ; methods : Ast.Decl.Class.Method.t Ast.Node.t list
       ; range : Range.t
+      ; scope : Scope.t
       }
   end
 
@@ -1355,6 +1543,7 @@ module Precheck_decl = struct
       ; annot : Ast.Type.t option
       ; value : Ast.Expr.t
       ; range : Range.t
+      ; scope : Scope.t
       }
   end
 
@@ -1390,22 +1579,25 @@ module Precheck_decl = struct
       | Function { name; args; ret_type; body } ->
         let%map id = insert_global name in
         precheck.functions
-        <- Function.{ id; args; ret_type; body; range } :: precheck.functions
+        <- Function.{ id; args; ret_type; body; range; scope = t.scope }
+           :: precheck.functions
       | Constant { ident; annot; value } ->
         let%map id = insert_global ident in
-        precheck.constants <- Constant.{ id; annot; value; range } :: precheck.constants
+        precheck.constants
+        <- Constant.{ id; annot; value; range; scope = t.scope } :: precheck.constants
       | Class { name; super_type; fields; constructors; methods } ->
         let%map id = insert_class name in
         precheck.classes
-        <- Class.{ id; super_type; fields; constructors; methods; range }
+        <- Class.{ id; super_type; fields; constructors; methods; range; scope = t.scope }
            :: precheck.classes
       | Module { name; decls } ->
-        let new_t = with_module_scope t ~name in
+        let new_t = with_new_module_scope t ~name in
         List.fold_result decls ~init:() ~f:(fun () decl -> aux new_t precheck ~decl)
       | Extern_function { name; arg_tys; ret_type; external_name } ->
         let%map id = insert_global name in
         precheck.extern_functions
-        <- Extern_function.{ id; arg_tys; ret_type; range; external_name }
+        <- Extern_function.
+             { id; arg_tys; ret_type; range; external_name; scope = t.scope }
            :: precheck.extern_functions
     in
     let precheck_decls = create () in
@@ -1442,17 +1634,19 @@ module Declared_function = struct
     ; ret_type : Type.t
     ; body : Ast.Expr.t
     ; range : Range.t
+    ; scope : Scope.t
     }
 
   let fun_type_of ~args ~ret_type = Type.{ args = Args.types args; ret = ret_type }
 
   let check_function_signature
         t
-        Precheck_decl.Function.{ id; args; ret_type; body; range }
+        Precheck_decl.Function.{ id; args; ret_type; body; range; scope }
     =
+    let t = with_module_scope t ~scope in
     let%bind args = Args.check t args in
     let%bind ret_type = check_type t ret_type in
-    Ok ({ id; args; ret_type; body; range }, fun_type_of ~args ~ret_type)
+    Ok ({ id; args; ret_type; body; range; scope }, fun_type_of ~args ~ret_type)
   ;;
 
   let declare_function t f =
@@ -1556,16 +1750,19 @@ module Declared_class = struct
     { id : Type.Class_id.t
     ; super_type : Type.Class_id.t option
     ; fields : Field.t list
-    ; constructor : Constructor.t Ast.Node.t
+    ; constructor : Constructor.t Ast.Node.t option
     ; evolver : Constructor.t Ast.Node.t option
     ; methods : Method.t Ast.Node.t list
     ; range : Range.t
+    ; scope : Scope.t
     }
 
   let check_class_signature
         t
-        Precheck_decl.Class.{ id; super_type; fields; constructors; methods; range }
+        Precheck_decl.Class.
+          { id; super_type; fields; constructors; methods; range; scope }
     =
+    let t = with_module_scope t ~scope in
     let%bind super_type_resolved =
       Option.map super_type ~f:(fun path -> lookup_class t ~range ~path)
       |> transpose_result_option
@@ -1581,34 +1778,32 @@ module Declared_class = struct
           ~range
           ~msg:[ Text "Field declared multiple times "; Ident name ]
     in
-    let%bind constructor =
+    let ensure_unique ~evolves_filter ~constructor_type =
       match
         List.filter constructors ~f:(fun constructor ->
-          constructor.data.evolves |> Option.is_none)
+          constructor.data.evolves |> evolves_filter)
       with
-      | [ constructor ] -> Ok constructor
-      | [] -> create_type_error_result ~range ~msg:[ Text "Class has no constructors." ]
-      | _ :: _ :: _ ->
-        create_type_error_result ~range ~msg:[ Text "Class has multiple constructors." ]
-    in
-    let%bind evolver =
-      match
-        List.filter constructors ~f:(fun constructor ->
-          constructor.data.evolves |> Option.is_some)
-      with
-      | [ evolver ] -> Ok (Some evolver)
+      | [ constructor ] -> Ok (Some constructor)
       | [] -> Ok None
       | _ :: _ :: _ ->
-        create_type_error_result ~range ~msg:[ Text "Class has multiple evolvers." ]
+        create_type_error_result
+          ~range
+          ~msg:[ Text ("Class has multiple " ^ constructor_type ^ ".") ]
     in
-    let%bind checked_constructor, constructor_sig = Constructor.check t constructor in
-    let%bind checked_evolver, evolver_sig =
-      match evolver with
-      | Some evolver ->
-        let%bind checked, sig_ = Constructor.check t evolver in
+    let%bind constructor =
+      ensure_unique ~evolves_filter:Option.is_none ~constructor_type:"constructors"
+    in
+    let%bind evolver =
+      ensure_unique ~evolves_filter:Option.is_some ~constructor_type:"evolvers"
+    in
+    let check_opt_constructor t = function
+      | Some constructor ->
+        let%bind checked, sig_ = Constructor.check t constructor in
         return (Some checked, Some sig_)
       | None -> return (None, None)
     in
+    let%bind checked_constructor, constructor_sig = check_opt_constructor t constructor in
+    let%bind checked_evolver, evolver_sig = check_opt_constructor t evolver in
     let%bind checked_methods, method_sigs =
       List.map_result methods ~f:(Method.check t) |> Result.map ~f:List.unzip
     in
@@ -1638,6 +1833,7 @@ module Declared_class = struct
       ; evolver = checked_evolver
       ; methods = checked_methods
       ; range
+      ; scope
       }
     in
     Ok (declaration, signature)
@@ -1650,7 +1846,8 @@ module Declared_class = struct
   ;;
 end
 
-let check_constant t Precheck_decl.Constant.{ id; annot; value; range } =
+let check_constant t Precheck_decl.Constant.{ id; annot; value; range; scope } =
+  let t = with_module_scope t ~scope in
   (* TODO: We are checking constants before adding their types into the 
      environment, so we will run in to issues if constants refer to eachother in
      an order other than in the order defined. If the don't do this there will
@@ -1670,8 +1867,9 @@ let declare_constant t constant =
 
 let declare_extern_function
       t
-      Precheck_decl.Extern_function.{ id; arg_tys; ret_type; range; external_name }
+      Precheck_decl.Extern_function.{ id; arg_tys; ret_type; range; external_name; scope }
   =
+  let t = with_module_scope t ~scope in
   let%bind checked_arg_types =
     List.map_result arg_tys ~f:(fun arg_ty -> check_type t arg_ty)
   in
@@ -1713,7 +1911,8 @@ let check_function_body t ~args ~ret_type ~body ~range ?this_id ?constructor_sta
   Ok (checked_body_with_vtable, checked_args)
 ;;
 
-let check_function t Declared_function.{ id; args; ret_type; body; range } =
+let check_function t Declared_function.{ id; args; ret_type; body; range; scope } =
+  let t = with_module_scope t ~scope in
   let%bind checked_body, checked_args =
     check_function_body t ~args ~ret_type ~body ~range ()
   in
@@ -1860,8 +2059,10 @@ let check_method t ~(class_signature : Type.Class.t) ~class_path Ast.Node.{ rang
 
 let check_class
       t
-      Declared_class.{ id; super_type; fields; constructor; methods; evolver; range }
+      Declared_class.
+        { id; super_type; fields; constructor; methods; evolver; range; scope }
   =
+  let t = with_module_scope t ~scope in
   let class_signature = resolve_class t ~class_id:id in
   let class_path = Class_env.find_name t.class_env ~id in
   (* Check the inheritance graph is acyclic. 
@@ -1875,9 +2076,14 @@ let check_class
       ~error:(create_type_error ~range ~msg:[ Text "Class has recursive super class." ])
   in
   let%bind () = List.iter_result fields ~f:(check_field t ~class_signature ~class_path) in
-  let%bind checked_class_constructor = check_constructor t ~class_signature constructor in
+  let%bind checked_class_constructor =
+    constructor
+    |> Option.map ~f:(check_constructor t ~class_signature)
+    |> transpose_result_option
+  in
   let%bind checked_class_evolver =
-    Option.map evolver ~f:(check_constructor t ~class_signature)
+    evolver
+    |> Option.map ~f:(check_constructor t ~class_signature)
     |> transpose_result_option
   in
   let%bind checked_class_methods =

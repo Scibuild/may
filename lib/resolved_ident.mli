@@ -4,6 +4,7 @@ module Local : sig
   type t [@@deriving sexp_of]
 
   include Hashable.S_plain with type t := t
+  include Comparable.S_plain with type t := t
 
   val create : name:Ast.Ident.t -> id:int -> t
   val name : t -> Ast.Ident.t

@@ -43,6 +43,7 @@ open! Core
 %token COLON
 // %token COLON_EQ
 %token DOT
+%token DOT_DOT
 %token GE
 %token GT
 %token LE
@@ -57,6 +58,7 @@ open! Core
 %token STAR
 %token DOT_INTER
 %token INTER
+%token XCHG
 
 %token O_CURLY
 %token C_CURLY
@@ -84,13 +86,14 @@ open! Core
 expr_prog: e = expr EOF { e }
 decl_prog: decls = list(decl) EOF { decls }
 
-ty: ident = IDENT { Ast.Type.create ~ty:(Ident ident) ~loc:$loc}
-  | path = cap_ident_path { Ast.Type.create ~ty:(Path path) ~loc:$loc}
+ty: ident = IDENT { Ast.Type.create ~ty:(Ident ident) ~loc:$loc }
+  | path = cap_ident_path { Ast.Type.create ~ty:(Path path) ~loc:$loc }
   | O_SQUARE C_SQUARE mut = boption(MUT) ty = ty 
     { Ast.Type.create 
         ~ty:(Array {mut; elt = ty}) 
         ~loc:$loc }
   | INTER ty = ty {Ast.Type.create ~ty:(Option ty) ~loc:$loc}
+  | BANG path = cap_ident_path { Ast.Type.create ~ty:(Owned path) ~loc:$loc }
 
 expr :
   | non_stmt_expr { $1 }
@@ -144,6 +147,8 @@ subscriptable:
     { Ast.Expr.create ~expr:(Field_subscript {expr; field}) ~loc:$loc }
   | expr = subscriptable O_SQUARE index = expr C_SQUARE 
     { Ast.Expr.create ~expr:(Array_subscript {expr; index}) ~loc:$loc }
+  | expr = subscriptable O_SQUARE from = expr DOT_DOT to_ = expr C_SQUARE 
+    { Ast.Expr.create ~expr:(Array_subrange {expr; from; to_}) ~loc:$loc }
   | expr = subscriptable O_PAREN arguments = separated_list(COMMA, expr)  C_PAREN 
     { Ast.Expr.create ~expr:(Function_call {expr; arguments}) ~loc:$loc }
   | expr = subscriptable COLON method_ = IDENT O_PAREN arguments = separated_list(COMMA, expr)  C_PAREN 
@@ -152,6 +157,8 @@ subscriptable:
     { Ast.Expr.create ~expr:(Lit_array elts) ~loc:$loc}
   | NEW class_ = cap_ident_path O_PAREN arguments = separated_list(COMMA, expr)  C_PAREN
     { Ast.Expr.create ~expr:(New {class_; arguments}) ~loc:$loc}
+  | NEW O_SQUARE size = expr C_SQUARE ty = ty O_PAREN init = expr C_PAREN
+    { Ast.Expr.create ~expr:(New_array { size; ty; init}) ~loc:$loc}
   | expr = subscriptable EVOLVES class_ = cap_ident_path O_PAREN arguments = separated_list(COMMA, expr) C_PAREN
     { Ast.Expr.create ~expr:(Evolves {expr; class_; arguments}) ~loc:$loc}
   | lhs = subscriptable DOT_INTER 
@@ -175,6 +182,8 @@ non_expr_stmt:
         ~expr:(Return (Ast.Expr.create ~expr:Unit ~loc:$loc)) 
         ~loc:$loc }
   | if_then { $1 }
+  | expr1 = expr XCHG expr2 = expr SEMI
+    { Ast.Expr.create ~expr:(Exchange {expr1; expr2}) ~loc:$loc }
 
 stmt_list:
   | e = non_stmt_expr SEMI tl = stmt_list { e :: tl }
@@ -190,9 +199,16 @@ if_then_else :
     { Ast.Expr.create 
       ~expr:(If {cond; if_then; if_else = if_else}) 
       ~loc:$loc }
-  | IFO var = IDENT EQ expr = expr if_value = block ELSE if_null = if_then_else_if_else
+  | IFO 
+    var = IDENT 
+    annot = option(type_annotation) 
+    EQ 
+    expr = expr 
+    if_value = block 
+    ELSE 
+    if_null = if_then_else_if_else
     { Ast.Expr.create 
-      ~expr:(If_option {expr; var; if_value; if_null }) 
+      ~expr:(If_option {expr; var; if_value; if_null; annot }) 
       ~loc:$loc}
 
 if_then :
@@ -200,9 +216,15 @@ if_then :
     { Ast.Expr.create 
       ~expr:(If {cond; if_then; if_else}) 
       ~loc:$loc}
-  | IFO var = IDENT EQ expr = expr if_value = block if_null = if_then_if_else
+  | IFO 
+    var = IDENT 
+    annot = option(type_annotation) 
+    EQ 
+    expr = expr 
+    if_value = block 
+    if_null = if_then_if_else
     { Ast.Expr.create 
-      ~expr:(If_option {expr; var; if_value; if_null }) 
+      ~expr:(If_option {expr; var; if_value; if_null; annot }) 
       ~loc:$loc}
 
 if_then_if_else: 

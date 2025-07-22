@@ -1,5 +1,20 @@
 open! Core
 
+let run_expr_check program =
+  let ast =
+    program
+    |> May.For_testing.expr_parse_string
+    |> Result.map_error ~f:May.Comp_error.to_string
+    |> Result.ok_or_failwith
+  in
+  let check =
+    May.Check.For_testing.with_function_check
+      (May.Check.empty ~mode:May.Mode.Without)
+      (May.Check.For_testing.Function_check.create ~return_type:May.Type.Unit ())
+  in
+  May.Check.infer_expr check ~term:ast, check
+;;
+
 let%expect_test "type checking expressions/statements" =
   let programs =
     [ "-1 / 2 + 3 * 4 - 5 / (6 + 7)"
@@ -29,19 +44,9 @@ let%expect_test "type checking expressions/statements" =
     ]
   in
   let test program =
-    let ast =
-      program
-      |> May.For_testing.expr_parse_string
-      |> Result.map_error ~f:May.Comp_error.to_string
-      |> Result.ok_or_failwith
-    in
-    let check =
-      May.Check.For_testing.with_function_check
-        (May.Check.empty ())
-        (May.Check.For_testing.Function_check.create ~return_type:May.Type.Unit ())
-    in
+    let result, check = run_expr_check program in
     let type_ =
-      May.Check.infer_expr check ~term:ast
+      result
       |> Result.map_error ~f:May.Comp_error.to_string
       |> Result.ok_or_failwith
       |> May.Tast.Expr.ty
@@ -100,23 +105,8 @@ let%expect_test "type checking expressions/statements errors" =
     ]
   in
   let test program =
-    let ast =
-      program
-      |> May.For_testing.expr_parse_string
-      |> Result.map_error ~f:May.Comp_error.to_string
-      |> Result.ok_or_failwith
-    in
-    let check =
-      May.Check.For_testing.with_function_check
-        (May.Check.empty ())
-        (May.Check.For_testing.Function_check.create ~return_type:May.Type.Unit ())
-    in
-    let error =
-      May.Check.infer_expr check ~term:ast
-      |> Result.error
-      |> Option.value_exn
-      |> May.Comp_error.to_string
-    in
+    let result, _ = run_expr_check program in
+    let error = result |> Result.error |> Option.value_exn |> May.Comp_error.to_string in
     [%sexp { program : string; error : string }]
   in
   programs |> List.map ~f:test |> Expectable.print;
@@ -139,6 +129,14 @@ let%expect_test "type checking expressions/statements errors" =
     │ null                                          │ Type error at 1:1-1:5: Cannot infer type of null                                       │
     └───────────────────────────────────────────────┴────────────────────────────────────────────────────────────────────────────────────────┘
     |}]
+;;
+
+let run_program_check program check =
+  May.Resolved_ident.Global.Id.For_testing.reset_counter ();
+  May.Type.Class_id.For_testing.reset_counter ();
+  let%bind.Result ast = May.For_testing.parse_string program in
+  let%bind.Result decls = May.Check.check_decls check ~decls:ast in
+  Ok decls
 ;;
 
 let%expect_test "type checking const and fn decls" =
@@ -241,24 +239,20 @@ let%expect_test "type checking const and fn decls" =
         }
       }
       |}
+    ; {|
+      module A {
+        const x = 10;
+
+        fun getX() : int { x }
+      }
+      |}
     ]
   in
   let test program =
     let program = Utils.remove_indentation program in
-    May.Resolved_ident.Global.Id.For_testing.reset_counter ();
-    May.Type.Class_id.For_testing.reset_counter ();
-    let ast =
-      program
-      |> May.For_testing.parse_string
-      |> Result.map_error ~f:May.Comp_error.to_string
-      |> Result.ok_or_failwith
-    in
-    let check = May.Check.empty () in
-    let error =
-      May.Check.check_decls check ~decls:ast
-      |> Result.map_error ~f:May.Comp_error.to_string
-      |> Result.error
-    in
+    let check = May.Check.empty ~mode:May.Mode.Without in
+    let result = run_program_check program check in
+    let error = result |> Result.map_error ~f:May.Comp_error.to_string |> Result.error in
     let check_string = May.Check.For_testing.to_string check in
     [%sexp { program : string; check_string : string; error : string option }]
   in
@@ -409,6 +403,13 @@ let%expect_test "type checking const and fn decls" =
     │   }                                                     │                                                                                 │       │
     │ }                                                       │                                                                                 │       │
     │                                                         │                                                                                 │       │
+    ├─────────────────────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────────┼───────┤
+    │ module A {                                              │ Globals:                                                                        │       │
+    │   const x = 10;                                         │ A.getX: () -> int                                                               │       │
+    │                                                         │ A.x: int                                                                        │       │
+    │   fun getX() : int { x }                                │                                                                                 │       │
+    │ }                                                       │ Classes:                                                                        │       │
+    │                                                         │                                                                                 │       │
     └─────────────────────────────────────────────────────────┴─────────────────────────────────────────────────────────────────────────────────┴───────┘
     |}]
 ;;
@@ -436,18 +437,9 @@ let%expect_test "type checking declaration errors" =
   in
   let test program =
     let program = Utils.remove_indentation program in
-    let ast =
-      program
-      |> May.For_testing.parse_string
-      |> Result.map_error ~f:May.Comp_error.to_string
-    in
-    let error =
-      Result.bind ast ~f:(fun ast ->
-        May.Check.check_decls (May.Check.empty ()) ~decls:ast
-        |> Result.map_error ~f:May.Comp_error.to_string)
-      |> Result.error
-      |> Option.value_exn
-    in
+    let check = May.Check.empty ~mode:Without in
+    let result = run_program_check program check in
+    let error = result |> Result.error |> Option.value_exn |> May.Comp_error.to_string in
     [%sexp { program : string; error : string }]
   in
   programs |> List.map ~f:test |> Expectable.print;
@@ -470,5 +462,223 @@ let%expect_test "type checking declaration errors" =
     │                                                                    │                                                                            │
     │ fun f(x : int): int {x} fun g(): int { f(10, 10) }                 │ Type error at 1:40-1:49: Expected 1 arguments but found 2                  │
     └────────────────────────────────────────────────────────────────────┴────────────────────────────────────────────────────────────────────────────┘
+    |}]
+;;
+
+let%expect_test "test ownership types" =
+  let programs =
+    [ {|
+    class A { constructor() {} }
+
+    fun main() : unit { let a: !A = new A(); () }
+    |}
+    ; {|
+    class A { constructor() {} }
+    fun main() : unit { 
+      let a: !A = new A(); 
+      let b: !A = a;
+      let c: !A = a;
+      () 
+      }
+    |}
+    ; {|
+    class A { constructor() {} }
+    fun main() : unit { 
+      let a: !A = new A(); 
+      let b: A = a;
+      let c: A = a;
+      () 
+      }
+    |}
+    ; {|
+    class A { constructor() {} }
+    class B < A { constructor() evolves A {} }
+    fun evolveA(a: !A) : !B { a evolves B() }
+    fun useA(a: A): unit {}
+    fun main(): unit {
+      let a = new A();
+      let b : !B = evolveA(a);
+      useA(a);
+      ()
+    }
+    |}
+    ; {|
+    class A { constructor() {} }
+    class B < A { constructor() evolves A {} }
+    fun evolveA(a: !A) : !B { a evolves B() }
+    fun main(): unit {
+      let a = new A();
+      let b = evolveA(a);
+      let b2 = evolveA(a);
+      ()
+    }
+    |}
+    ; {|
+    class A { public id: int; constructor(id: int) { this.id = id; } }
+    fun main(): unit {
+      let a_array: []mut !A = [ new A(1) ];
+      let a: !A = new A(2);
+      a >=< a_array[0];
+      ()
+    }
+    |}
+    ; {|
+    class A { public id: int; constructor(id: int) { this.id = id; } }
+    class B < A { constructor() evolves A {} }
+    fun main(): unit {
+      let a_array: []mut !A = [ new A(1) ];
+      let b = a_array[0] evolves B();
+      ()
+    }
+    |}
+    ; {|
+    class A { public id: int; constructor(id: int) { this.id = id; } }
+    fun main(): unit {
+      let a_array: []mut !A = [ new A(1) ];
+      let a: A = new A(2);
+      a >=< a_array[0];
+      ()
+    }
+    |}
+    ; {|
+    class A { constructor() {} }
+    class B < A { constructor() evolves A {} }
+    fun evolveA(a: !A) : !B { a evolves B() }
+    fun main(): unit {
+      let a = new A();
+      if true {
+        let b = evolveA(a); ()
+      } else {
+        let b2 = evolveA(a); ()
+      }
+      ()
+    }
+    |}
+    ; {|
+    class A { constructor() {} }
+    class B < A { constructor() evolves A {} }
+    fun evolveA(a: !A) : !B { a evolves B() }
+    fun main(): unit {
+      let a = new A();
+      if true {
+        let b = evolveA(a); ()
+      }
+      ()
+    }
+    |}
+    ]
+  in
+  let test program =
+    let program = Utils.remove_indentation program in
+    let check = May.Check.empty ~mode:May.Mode.With_ownership in
+    let result = run_program_check program check in
+    let error = result |> Result.map_error ~f:May.Comp_error.to_string |> Result.error in
+    [%sexp { program : string; error : string option }]
+  in
+  programs |> List.map ~f:test |> Expectable.print ~separate_rows:true;
+  [%expect
+    {|
+    ┌────────────────────────────────────────────────────────────────────┬──────────────────────────────────────────────────────────────────────────────────────────┐
+    │ program                                                            │ error                                                                                    │
+    ├────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────┤
+    │ class A { constructor() {} }                                       │                                                                                          │
+    │                                                                    │                                                                                          │
+    │ fun main() : unit { let a: !A = new A(); () }                      │                                                                                          │
+    │                                                                    │                                                                                          │
+    ├────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────┤
+    │ class A { constructor() {} }                                       │ Type error at 5:15-5:16: Type A is not included in type !A                               │
+    │ fun main() : unit {                                                │                                                                                          │
+    │   let a: !A = new A();                                             │                                                                                          │
+    │   let b: !A = a;                                                   │                                                                                          │
+    │   let c: !A = a;                                                   │                                                                                          │
+    │   ()                                                               │                                                                                          │
+    │   }                                                                │                                                                                          │
+    │                                                                    │                                                                                          │
+    ├────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────┤
+    │ class A { constructor() {} }                                       │                                                                                          │
+    │ fun main() : unit {                                                │                                                                                          │
+    │   let a: !A = new A();                                             │                                                                                          │
+    │   let b: A = a;                                                    │                                                                                          │
+    │   let c: A = a;                                                    │                                                                                          │
+    │   ()                                                               │                                                                                          │
+    │   }                                                                │                                                                                          │
+    │                                                                    │                                                                                          │
+    ├────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────┤
+    │ class A { constructor() {} }                                       │                                                                                          │
+    │ class B < A { constructor() evolves A {} }                         │                                                                                          │
+    │ fun evolveA(a: !A) : !B { a evolves B() }                          │                                                                                          │
+    │ fun useA(a: A): unit {}                                            │                                                                                          │
+    │ fun main(): unit {                                                 │                                                                                          │
+    │   let a = new A();                                                 │                                                                                          │
+    │   let b : !B = evolveA(a);                                         │                                                                                          │
+    │   useA(a);                                                         │                                                                                          │
+    │   ()                                                               │                                                                                          │
+    │ }                                                                  │                                                                                          │
+    │                                                                    │                                                                                          │
+    ├────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────┤
+    │ class A { constructor() {} }                                       │ Type error at 7:20-7:21: Type A is not included in type !A                               │
+    │ class B < A { constructor() evolves A {} }                         │                                                                                          │
+    │ fun evolveA(a: !A) : !B { a evolves B() }                          │                                                                                          │
+    │ fun main(): unit {                                                 │                                                                                          │
+    │   let a = new A();                                                 │                                                                                          │
+    │   let b = evolveA(a);                                              │                                                                                          │
+    │   let b2 = evolveA(a);                                             │                                                                                          │
+    │   ()                                                               │                                                                                          │
+    │ }                                                                  │                                                                                          │
+    │                                                                    │                                                                                          │
+    ├────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────┤
+    │ class A { public id: int; constructor(id: int) { this.id = id; } } │                                                                                          │
+    │ fun main(): unit {                                                 │                                                                                          │
+    │   let a_array: []mut !A = [ new A(1) ];                            │                                                                                          │
+    │   let a: !A = new A(2);                                            │                                                                                          │
+    │   a >=< a_array[0];                                                │                                                                                          │
+    │   ()                                                               │                                                                                          │
+    │ }                                                                  │                                                                                          │
+    │                                                                    │                                                                                          │
+    ├────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────┤
+    │ class A { public id: int; constructor(id: int) { this.id = id; } } │ Type error at 5:11-5:21: Type A is not included in type !A                               │
+    │ class B < A { constructor() evolves A {} }                         │                                                                                          │
+    │ fun main(): unit {                                                 │                                                                                          │
+    │   let a_array: []mut !A = [ new A(1) ];                            │                                                                                          │
+    │   let b = a_array[0] evolves B();                                  │                                                                                          │
+    │   ()                                                               │                                                                                          │
+    │ }                                                                  │                                                                                          │
+    │                                                                    │                                                                                          │
+    ├────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────┤
+    │ class A { public id: int; constructor(id: int) { this.id = id; } } │ Type error at 5:3-5:20: Cannot exchange types A and !A                                   │
+    │ fun main(): unit {                                                 │                                                                                          │
+    │   let a_array: []mut !A = [ new A(1) ];                            │                                                                                          │
+    │   let a: A = new A(2);                                             │                                                                                          │
+    │   a >=< a_array[0];                                                │                                                                                          │
+    │   ()                                                               │                                                                                          │
+    │ }                                                                  │                                                                                          │
+    │                                                                    │                                                                                          │
+    ├────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────┤
+    │ class A { constructor() {} }                                       │                                                                                          │
+    │ class B < A { constructor() evolves A {} }                         │                                                                                          │
+    │ fun evolveA(a: !A) : !B { a evolves B() }                          │                                                                                          │
+    │ fun main(): unit {                                                 │                                                                                          │
+    │   let a = new A();                                                 │                                                                                          │
+    │   if true {                                                        │                                                                                          │
+    │     let b = evolveA(a); ()                                         │                                                                                          │
+    │   } else {                                                         │                                                                                          │
+    │     let b2 = evolveA(a); ()                                        │                                                                                          │
+    │   }                                                                │                                                                                          │
+    │   ()                                                               │                                                                                          │
+    │ }                                                                  │                                                                                          │
+    │                                                                    │                                                                                          │
+    ├────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────┤
+    │ class A { constructor() {} }                                       │ Type error at 6:3-8:4: Local variable a ends with type !A on one branch, but type A on   │
+    │ class B < A { constructor() evolves A {} }                         │ another                                                                                  │
+    │ fun evolveA(a: !A) : !B { a evolves B() }                          │                                                                                          │
+    │ fun main(): unit {                                                 │                                                                                          │
+    │   let a = new A();                                                 │                                                                                          │
+    │   if true {                                                        │                                                                                          │
+    │     let b = evolveA(a); ()                                         │                                                                                          │
+    │   }                                                                │                                                                                          │
+    │   ()                                                               │                                                                                          │
+    │ }                                                                  │                                                                                          │
+    │                                                                    │                                                                                          │
+    └────────────────────────────────────────────────────────────────────┴──────────────────────────────────────────────────────────────────────────────────────────┘
     |}]
 ;;

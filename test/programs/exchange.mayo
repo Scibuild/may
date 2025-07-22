@@ -1,0 +1,31 @@
+module Std {
+  module String {
+    extern fun print([]char) : unit = "internal_may_print_string";
+  }
+
+  module Int {
+    extern fun print(int) : unit = "internal_may_print_int";
+  }
+}
+
+class A { 
+  public id: int; 
+  constructor(id: int) { this.id = id; } 
+}
+
+fun main(): unit {
+  let a_array: []mut !A = [ new A(1) ];
+  let a: !A = new A(2);
+  Std.String.print("a.id = ");
+  Std.Int.print(a.id);
+  Std.String.print("\na_array[0].id = ");
+  Std.Int.print(a_array[0].id);
+  Std.String.print("\n");
+  Std.String.print("Exchanging ....");
+  a >=< a_array[0];
+  Std.String.print("a.id = ");
+  Std.Int.print(a.id);
+  Std.String.print("\na_array[0].id = ");
+  Std.Int.print(a_array[0].id);
+  Std.String.print("\n");
+}

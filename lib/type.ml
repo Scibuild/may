@@ -38,6 +38,7 @@ and t =
       }
   | Fun of fun_signature (** An object is an instance of a particular class. *)
   | Object of Class_id.t
+  | Owned_object of Class_id.t
   | Top_object
   | Option of t
 [@@deriving sexp_of, equal]
@@ -50,13 +51,20 @@ let is_reference = function
   | Array _ -> false
   | Fun _ -> true
   | Object _ -> true
+  | Owned_object _ -> true
   | Top_object -> true
   | Option _ -> false
 ;;
 
 let class_id_exn = function
-  | Object class_id -> class_id
+  | Object class_id | Owned_object class_id -> class_id
   | ty -> raise_s [%message "attempted to get class id of non object type" (ty : t)]
+;;
+
+let erase_ownership = function
+  | Owned_object id -> Object id
+  | Option (Owned_object id) -> Option (Object id)
+  | _ as ty -> ty
 ;;
 
 module Class = struct
@@ -92,7 +100,7 @@ module Class = struct
   type t =
     { id : Class_id.t
     ; fields : Field.t Ast.Ident.Map.t
-    ; constructor : Constructor.t
+    ; constructor : Constructor.t option [@sexp.option]
     ; evolver : Constructor.t option [@sexp.option]
     ; methods : Method.t Ast.Ident.Map.t
     ; super : Class_id.t option
@@ -110,6 +118,7 @@ let rec to_string ~resolve_class_name = function
   | Array { mut = true; elt } -> [%string "[]mut %{to_string ~resolve_class_name elt}"]
   | Array { mut = false; elt } -> [%string "[]%{to_string ~resolve_class_name elt}"]
   | Object class_id -> resolve_class_name class_id
+  | Owned_object class_id -> "!" ^ resolve_class_name class_id
   | Top_object -> "object"
   | Fun { args; ret } ->
     "("

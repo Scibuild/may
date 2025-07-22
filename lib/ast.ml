@@ -50,6 +50,7 @@ module Type = struct
   type type_kind =
     | Ident of Ident.t
     | Path of Path.t
+    | Owned of Path.t
     | Array of
         { mut : bool
         ; elt : t
@@ -65,6 +66,7 @@ module Type = struct
     match Node.data t with
     | Ident i -> Ident.to_string i
     | Path p -> Path.to_string p
+    | Owned p -> [%string "!%{p#Path}"]
     | Array { mut; elt } ->
       (match mut with
        | true -> [%string "([]mut %{to_string elt})"]
@@ -155,6 +157,11 @@ module Expr = struct
         { expr : t
         ; index : t
         }
+    | Array_subrange of
+        { expr : t
+        ; from : t
+        ; to_ : t
+        }
     | Let of
         { ident : Ident.t
         ; annot : Type.t option
@@ -177,6 +184,11 @@ module Expr = struct
         { class_ : Path.t
         ; arguments : t list
         }
+    | New_array of
+        { size : t
+        ; ty : Type.t
+        ; init : t
+        }
     | Evolves of
         { expr : t
         ; class_ : Path.t
@@ -187,6 +199,7 @@ module Expr = struct
     | If_option of
         { expr : t
         ; var : Ident.t
+        ; annot : Type.t option
         ; if_value : t
         ; if_null : t option
         }
@@ -195,7 +208,10 @@ module Expr = struct
         ; or_else : t
         }
     | De_null of { lhs : t }
-  [@@deriving sexp_of]
+    | Exchange of
+        { expr1 : t
+        ; expr2 : t
+        }
 
   and t = expr_kind Node.t [@@deriving sexp_of]
 
@@ -203,6 +219,12 @@ module Expr = struct
 
   let rec to_string t =
     let comma_sep = List.map ~f:to_string >> String.concat ~sep:", " in
+    let str_of_annot annot =
+      annot
+      |> Option.map ~f:Type.to_string
+      |> Option.map ~f:(String.append ": ")
+      |> Option.value ~default:""
+    in
     match Node.data t with
     | Lit_int x -> x
     | Lit_string x -> [%string "\"%{x}\""]
@@ -229,14 +251,10 @@ module Expr = struct
     | Field_subscript { expr; field } -> [%string "(%{to_string expr}.%{field#Ident})"]
     | Array_subscript { expr; index } ->
       [%string "(%{to_string expr}[%{to_string index}])"]
+    | Array_subrange { expr; from; to_ } ->
+      [%string "(%{to_string expr}[%{to_string from} .. %{to_string to_}])"]
     | Let { ident; expr; annot } ->
-      let annot_str =
-        annot
-        |> Option.map ~f:Type.to_string
-        |> Option.map ~f:(String.append ": ")
-        |> Option.value ~default:""
-      in
-      [%string "(let %{ident#Ident}%{annot_str} = %{to_string expr})"]
+      [%string "(let %{ident#Ident}%{str_of_annot annot} = %{to_string expr})"]
     | Assign { lhs; rhs } -> [%string "(%{to_string lhs} = %{to_string rhs})"]
     | Function_call { expr; arguments } ->
       [%string "(%{to_string expr}(%{comma_sep arguments}))"]
@@ -245,17 +263,22 @@ module Expr = struct
       [%string "(%{to_string expr}:%{method_#Ident}(%{comma_sep arguments}))"]
     | New { class_; arguments } ->
       [%string "(new %{class_#Path}(%{comma_sep arguments}))"]
+    | New_array { size; ty; init } ->
+      [%string "(new [%{to_string size}]%{ty#Type}(%{to_string init}))"]
     | Evolves { expr; class_; arguments } ->
       [%string "(%{to_string expr} evolves %{class_#Path}(%{comma_sep arguments}))"]
     | De_null { lhs } -> to_string lhs ^ ".?"
-    | If_option { expr; var; if_value; if_null = None } ->
-      [%string "(if? %{var#Ident} = (%{to_string expr}) %{to_string if_value})"]
-    | If_option { expr; var; if_value; if_null = Some if_null } ->
+    | If_option { expr; var; annot; if_value; if_null = None } ->
       [%string
-        "(if? %{var#Ident} = (%{to_string expr}) %{to_string if_value} else %{to_string \
-         if_null})"]
+        "(if? %{var#Ident}%{str_of_annot annot} = (%{to_string expr}) %{to_string \
+         if_value})"]
+    | If_option { expr; var; annot; if_value; if_null = Some if_null } ->
+      [%string
+        "(if? %{var#Ident}%{str_of_annot annot} = (%{to_string expr}) %{to_string \
+         if_value} else %{to_string if_null})"]
     | Or_else { lhs; or_else } -> [%string "%{to_string lhs} orelse %{to_string or_else}"]
     | Null -> "null"
+    | Exchange { expr1; expr2 } -> [%string "%{to_string expr1} >=< %{to_string expr2}"]
   ;;
 end
 

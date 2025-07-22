@@ -5,7 +5,7 @@ type t
 module Global_env : Env.S with type Id.t := Resolved_ident.Global.Id.t
 module Class_env : Env.S with type Id.t := Type.Class_id.t
 
-val empty : unit -> t
+val empty : mode:Mode.t -> t
 val check_expr : t -> ty:Type.t -> term:Ast.Expr.t -> (Tast.Expr.t, Comp_error.t) Result.t
 val infer_expr : t -> term:Ast.Expr.t -> (Tast.Expr.t, Comp_error.t) Result.t
 val check_decls : t -> decls:Ast.Decl.t list -> (Tast.Decls.t, Comp_error.t) Result.t

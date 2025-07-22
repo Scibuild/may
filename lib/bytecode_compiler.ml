@@ -351,6 +351,7 @@ module Function_compiler = struct
       emit_instr t Instruction.Pop;
       compile_expr t ~expr:if_null;
       patch_branch_to_here t ~at:branch_after_true `Unconditional
+    | Exchange _ | Array_subrange _ | New_array _ -> failwith "unimplemented"
 
   and compile_assignment_to t ~(lvalue : Tast.Expr.t) =
     match Tast.Expr.kind lvalue with
@@ -396,6 +397,9 @@ module Function_compiler = struct
     | Null
     | Or_else _
     | If_option _
+    | Array_subrange _
+    | Exchange _
+    | New_array _
     | Lit_array _ -> failwith "unreachable"
   ;;
 end
@@ -520,10 +524,12 @@ module Compilation_unit = struct
     | Block _
     | Field_subscript _
     | Array_subscript _
+    | Array_subrange _
     | Let _
     | Assign _
     | Function_call _
     | Lit_array _
+    | New_array _
     | Method_call _
     | Return _
     | Update_this_vtable_after _
@@ -533,6 +539,7 @@ module Compilation_unit = struct
     | Or_else _
     | If_option _
     | Evolves _
+    | Exchange _
     | New _ ->
       (* TODO-someday: implement. Probably not worth implementing here anyway
          and to do something more robust that can be shared across backends. *)
@@ -629,7 +636,7 @@ module Compilation_unit = struct
           { id; super_type; methods; fields = _; constructor; evolver; range = _ }
     =
     let class_path = Check.Class_env.find_name t.class_env ~id in
-    compile_constructor t ~class_id:id ~class_path constructor;
+    Option.iter constructor ~f:(compile_constructor t ~class_id:id ~class_path);
     Option.iter evolver ~f:(fun evolver ->
       compile_evolver
         t
