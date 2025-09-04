@@ -1,0 +1,15 @@
+import Std from "lib/std.may";
+
+class A { constructor() {}}
+class B < A { constructor() evolves A{}}
+
+fun main() : unit {
+  if true { 
+    let x = new A();
+    let xe = x evolves B();
+    ()
+  } else {
+
+  }
+  ()
+}

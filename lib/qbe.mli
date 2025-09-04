@@ -94,10 +94,12 @@ module Block : sig
 
   val create : name:Block_name.t -> t
   val add_jump : t -> jump:Instr.Jump.t -> unit
+
   (** Note that adding an instruction after adding a jump is a no-op and will silently 
       fail. This is to make codegen easier but can be disabled in source for debugging 
       purposes. *)
   val add_instr : t -> Instr.t -> unit
+
   val name : t -> Block_name.t
 
   (** Note that adding an instruction after adding a jump is a no-op and will silently 
@@ -145,13 +147,22 @@ end
 
 module Data : sig
   module Item : sig
+    module Elt : sig
+      type t =
+        [ Const.t
+        | `Symbol_plus of string * int
+        | `String of string
+        ]
+    end
+
     type t =
       | Pad of int
-      | I of Ext_ty.t * [ Const.t | `Symbol_plus of string * int | `String of string ]
+      | I of Ext_ty.t * Elt.t
   end
 
   type t
 
+  val name : t -> string
   val create : name:string -> ?linkage:Linkage.t list -> Item.t list -> t
   val add_to_buffer : t -> Bigbuffer.t -> unit
 end

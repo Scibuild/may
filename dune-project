@@ -36,7 +36,8 @@
   menhir
   textutils
   ppx_jane
-  bisect_ppx)
+  bisect_ppx
+  expect_test_helpers_async)
  (tags
   ("add topics" "to describe" your project)))
 

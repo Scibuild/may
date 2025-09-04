@@ -278,9 +278,17 @@ end
 
 module Data = struct
   module Item = struct
+    module Elt = struct
+      type t =
+        [ Const.t
+        | `Symbol_plus of string * int
+        | `String of string
+        ]
+    end
+
     type t =
       | Pad of int
-      | I of Ext_ty.t * [ Const.t | `Symbol_plus of string * int | `String of string ]
+      | I of Ext_ty.t * Elt.t
   end
 
   type t =
@@ -289,6 +297,7 @@ module Data = struct
     ; items : Item.t list
     }
 
+  let name t = t.name
   let create ~name ?(linkage = []) items = { name; linkage; items }
 
   let add_to_buffer { name; linkage; items } b =

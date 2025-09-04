@@ -1,0 +1,210 @@
+data $.static.1 = { l $.static.2, w 0, w 1, }
+data $.static.2 = { b "\n", }
+data $.static.3 = { l $.static.4, w 0, w 1, }
+data $.static.4 = { b "\n", }
+data $.static.5 = { l $.static.6, w 0, w 3, }
+data $.static.6 = { b " = ", }
+data $.static.7 = { l $.static.8, w 0, w 4, }
+data $.static.8 = { b "true", }
+data $.static.9 = { l $.static.10, w 0, w 5, }
+data $.static.10 = { b "false", }
+data $.static.11 = { l $.static.12, w 0, w 1, }
+data $.static.12 = { b "\n", }
+data $.static.13 = { l $.static.14, w 0, w 4, }
+data $.static.14 = { b "a.id", }
+data $.static.15 = { l $.static.16, w 0, w 13, }
+data $.static.16 = { b "a_array[0].id", }
+data $.static.17 = { l $.static.18, w 0, w 15, }
+data $.static.18 = { b "Exchanging ....", }
+data $.static.19 = { l $.static.20, w 0, w 4, }
+data $.static.20 = { b "a.id", }
+data $.static.21 = { l $.static.22, w 0, w 13, }
+data $.static.22 = { b "a_array[0].id", }
+function w $g__std_may_0__String_print_0(l %l_extern_0, )
+{
+@start
+        %t_0 =w call $internal_may_print_string(l %l_extern_0) 
+        ret %t_0
+
+}
+function w $g__std_may_0__Int_print_2(l %l_extern_0, )
+{
+@start
+        %t_0 =w call $internal_may_print_int(l %l_extern_0) 
+        ret %t_0
+
+}
+function w $g__std_may_0__String_println_1(l %l_s_0, )
+{
+@start
+        %t_0 =w call $g__std_may_0__String_print_0(l %l_s_0) 
+        %t_1 =w call $g__std_may_0__String_print_0(l $.static.1) 
+        ret %t_1
+
+}
+function w $g__std_may_0__Int_println_3(l %l_i_0, )
+{
+@start
+        %t_0 =w call $g__std_may_0__Int_print_2(l %l_i_0) 
+        %t_1 =w call $g__std_may_0__String_print_0(l $.static.3) 
+        ret %t_1
+
+}
+function w $g__std_may_0__Int_printInfo_4(l %l_varname_0, l %l_i_1, )
+{
+@start
+        %t_0 =w call $g__std_may_0__String_print_0(l %l_varname_0) 
+        %t_1 =w call $g__std_may_0__String_print_0(l $.static.5) 
+        %t_2 =w call $g__std_may_0__Int_println_3(l %l_i_1) 
+        ret %t_2
+
+}
+function w $g__std_may_0__Bool_print_5(ub %l_b_0, )
+{
+@start
+        jnz %l_b_0, @b_if_then_0, @b_if_else_1
+
+@b_if_then_0
+        %t_3 =w call $g__std_may_0__String_print_0(l $.static.7) 
+        %t_2 =w copy %t_3
+        jmp @b_if_result_4
+
+@b_if_else_1
+        %t_5 =w call $g__std_may_0__String_print_0(l $.static.9) 
+        %t_2 =w copy %t_5
+        jmp @b_if_result_4
+
+@b_if_result_4
+        ret %t_2
+
+}
+function w $g__std_may_0__Bool_println_6(ub %l_b_0, )
+{
+@start
+        %t_0 =w call $g__std_may_0__Bool_print_5(ub %l_b_0) 
+        %t_1 =w call $g__std_may_0__String_print_0(l $.static.11) 
+        ret %t_1
+
+}
+function w $g_main_7()
+{
+@start
+        %t_0 =l call $malloc(l 16) 
+        %t_1 =l call $malloc(l 8) 
+        %t_2 =l add %t_0, 0
+        storel %t_1, %t_2
+        %t_3 =l add %t_0, 8
+        storew 0, %t_3
+        %t_4 =l add %t_0, 12
+        storew 1, %t_4
+        %t_5 =l call $malloc(l 16) 
+        %t_6 =l add %t_5, 0
+        storel 0, %t_6
+        call $constructor_A(l %t_5, l 1) 
+        %t_7 =l add %t_1, 0
+        storel %t_5, %t_7
+        %l_a_array_0 =l copy %t_0
+        %t_8 =l call $malloc(l 16) 
+        %t_9 =l add %t_8, 0
+        storel 0, %t_9
+        call $constructor_A(l %t_8, l 2) 
+        %l_a_1 =l copy %t_8
+        %t_10 =l add %l_a_1, 8
+        %t_11 =l loadl %t_10
+        %t_12 =w call $g__std_may_0__Int_printInfo_4(l $.static.13, l %t_11) 
+        %t_13 =l add %l_a_array_0, 12
+        %t_14 =l loaduw %t_13
+        %t_15 =w csgel 0, 0
+        %t_16 =w csltl 0, %t_14
+        %t_17 =w mul %t_15, %t_16
+        jnz %t_17, @b_good_index_19, @b_bad_index_18
+
+@b_bad_index_18
+        call $panic_index_out_of_bounds(w 12, w 45, w 12, w 46) 
+        hlt
+
+@b_good_index_19
+        %t_20 =l add %l_a_array_0, 0
+        %t_21 =l loadl %t_20
+        %t_22 =l add %l_a_array_0, 8
+        %t_23 =l loaduw %t_22
+        %t_24 =l add 0, %t_23
+        %t_25 =l mul %t_24, 8
+        %t_26 =l add %t_21, %t_25
+        %t_27 =l loadl %t_26
+        %t_28 =l add %t_27, 8
+        %t_29 =l loadl %t_28
+        %t_30 =w call $g__std_may_0__Int_printInfo_4(l $.static.15, l %t_29) 
+        %t_31 =w call $g__std_may_0__String_println_1(l $.static.17) 
+        %t_32 =l add %l_a_array_0, 12
+        %t_33 =l loaduw %t_32
+        %t_34 =w csgel 0, 0
+        %t_35 =w csltl 0, %t_33
+        %t_36 =w mul %t_34, %t_35
+        jnz %t_36, @b_good_index_38, @b_bad_index_37
+
+@b_bad_index_37
+        call $panic_index_out_of_bounds(w 14, w 16, w 14, w 17) 
+        hlt
+
+@b_good_index_38
+        %t_39 =l add %l_a_array_0, 0
+        %t_40 =l loadl %t_39
+        %t_41 =l add %l_a_array_0, 8
+        %t_42 =l loaduw %t_41
+        %t_43 =l add 0, %t_42
+        %t_44 =l mul %t_43, 8
+        %t_45 =l add %t_40, %t_44
+        %t_46 =l copy %l_a_1
+        %t_47 =l add %t_45, 0
+        %t_48 =l loadl %t_47
+        %t_49 =l add %t_45, 0
+        storel %t_46, %t_49
+        %l_a_1 =l copy %t_48
+        %t_50 =l add %l_a_1, 8
+        %t_51 =l loadl %t_50
+        %t_52 =w call $g__std_may_0__Int_printInfo_4(l $.static.19, l %t_51) 
+        %t_53 =l add %l_a_array_0, 12
+        %t_54 =l loaduw %t_53
+        %t_55 =w csgel 0, 0
+        %t_56 =w csltl 0, %t_54
+        %t_57 =w mul %t_55, %t_56
+        jnz %t_57, @b_good_index_59, @b_bad_index_58
+
+@b_bad_index_58
+        call $panic_index_out_of_bounds(w 16, w 45, w 16, w 46) 
+        hlt
+
+@b_good_index_59
+        %t_60 =l add %l_a_array_0, 0
+        %t_61 =l loadl %t_60
+        %t_62 =l add %l_a_array_0, 8
+        %t_63 =l loaduw %t_62
+        %t_64 =l add 0, %t_63
+        %t_65 =l mul %t_64, 8
+        %t_66 =l add %t_61, %t_65
+        %t_67 =l loadl %t_66
+        %t_68 =l add %t_67, 8
+        %t_69 =l loadl %t_68
+        %t_70 =w call $g__std_may_0__Int_printInfo_4(l $.static.21, l %t_69) 
+        ret %t_70
+
+}
+function $constructor_A(l %this, l %l_id_0, )
+{
+@start
+        %t_0 =l add %this, 8
+        storel %l_id_0, %t_0
+        %t_1 =l add %this, 0
+        storel $vtable_A, %t_1
+        ret
+
+}
+data $vtable_A = { l 0, }
+export
+ function w $main()
+{
+@start
+  %exit_code =w call $g_main_7()
+  ret %exit_code
+}

@@ -31,3 +31,16 @@ let%expect_test "test removing indentation" =
     more_hello
     |}]
 ;;
+
+let starting_file = May.Ast.Ident.of_string "<test_file>"
+
+let load_file
+      ~mappings
+      ~range:(_ : May.Range.t)
+      ~current_file:(_ : May.Ast.Ident.t)
+      ~filepath
+  =
+  Ok
+    ( May.Ast.Ident.of_string ("<" ^ filepath ^ ">")
+    , List.Assoc.find_exn mappings ~equal:String.equal filepath )
+;;

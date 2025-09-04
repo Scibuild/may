@@ -1,0 +1,9 @@
+import Std from "lib/std.may";
+
+import OtherStd from "lib/std.may";
+
+fun main() : int {
+  OtherStd.String.print("Hello world!\n");
+  Std.String.print("Hello world!\n");
+  0
+}

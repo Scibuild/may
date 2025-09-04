@@ -1,8 +1,8 @@
 
-SRCS := $(shell find . -name '*.may')
+SRCS := $(shell find . -path ./lib -prune -o -name '*.may' -print)
 OBJS := $(SRCS:%.may=%.exe)
 
-SRCS_O := $(shell find . -name '*.mayo')
+SRCS_O := $(shell find . -path ./lib -prune -o -name '*.mayo' -print)
 OBJS_O := $(SRCS_O:%.mayo=%.exe)
 
 %.exe: %.s

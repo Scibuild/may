@@ -1,0 +1,29 @@
+import Std from "lib/std.may";
+
+class A { 
+  x : int;
+
+  constructor(x : int) { this.x = x; }
+}
+
+class B < A {
+  y : int;
+
+  constructor(y : int) evolves A {
+    this.y = y;
+  }
+
+  fun sum() : int {
+    this.x + this.y
+  }
+}
+
+fun main() : unit {
+  let a = new A(20);
+  if? b = a evolves B(22) {
+    Std.Bool.println(a == b);
+    Std.Int.println(b:sum());
+  } else { 
+    Std.String.println("Evolution failed");
+  }
+}

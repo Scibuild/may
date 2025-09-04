@@ -314,7 +314,12 @@ let test ~with_bytecode program =
   let checked_ast =
     program
     |> May.For_testing.parse_string
-    |> Result.bind ~f:(fun ast -> May.Check.check_decls check ~decls:ast)
+    |> Result.bind ~f:(fun ast ->
+      May.Check.check_decls
+        check
+        ~decls:ast
+        ~load_file:(Utils.load_file ~mappings:[])
+        ~starting_file:Utils.starting_file)
     |> Result.map_error ~f:May.Comp_error.to_string
     |> Result.ok_or_failwith
   in
@@ -528,7 +533,7 @@ let%expect_test "bytecode_compiler_output" =
     │                                                          │          │   10: (Get_local 1)                 │
     │                                                          │          │   11: (Get_local 2)                 │
     │                                                          │          │   12: (Add Int)                     │
-    │                                                          │          │   13: (Create_object 2)             │
+    │                                                          │          │   13: (Create_object 1)             │
     │                                                          │          │   14: (Get_constructor 0)           │
     │                                                          │          │   15: Call                          │
     │                                                          │          │   16: Return                        │
@@ -567,7 +572,7 @@ let%expect_test "bytecode_compiler_output" =
     │                                                          │          │   10: (Get_local 1)                 │
     │                                                          │          │   11: (Get_local 2)                 │
     │                                                          │          │   12: (Add Int)                     │
-    │                                                          │          │   13: (Create_object 2)             │
+    │                                                          │          │   13: (Create_object 1)             │
     │                                                          │          │   14: (Get_constructor 0)           │
     │                                                          │          │   15: Call                          │
     │                                                          │          │   16: Return                        │

@@ -22,6 +22,7 @@ depends: [
   "textutils"
   "ppx_jane"
   "bisect_ppx"
+  "expect_test_helpers_async"
   "odoc" {with-doc}
 ]
 build: [

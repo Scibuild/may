@@ -1,0 +1,499 @@
+import Std from "lib/std.may";
+
+
+class Type {
+  name : []char;
+
+  constructor(name : []char) {
+    this.name = name;
+  }
+
+  fun getName() : []char {
+    this.name
+  }
+  fun print() : unit { Std.String.print(this:getName()) }
+}
+
+class Types {
+  public int : Type;
+  public bool : Type;
+  public unit : Type;
+
+  constructor() {
+    this.int = new Type("int");
+    this.bool = new Type("bool");
+    this.unit = new Type("unit");
+  }
+}
+
+class Checker {
+  types : Types;
+
+  context : [][]char;
+
+  constructor (context : [][]char) {
+    this.types = new Types();
+    this.context = context;
+  }
+
+  fun types() : Types { this.types }
+
+  fun expect(hasType : Type, againstType : Type) : unit {
+    if hasType != againstType {
+      Std.Strings.fail(["Expected type ", hasType:getName(), " but found", againstType:getName()]);
+    }
+  }
+
+  fun getInContext(loc : []char) : int {
+    let i = 0;
+    while i < this.context.len {
+      if Std.String.equal(this.context[i], loc) {
+        return i;
+      }
+      i = i + 1;
+    }
+
+    Std.Strings.fail(["Reference to unknown location ", loc])
+  }
+}
+
+module Tokens {
+  const add = 0;
+  const gt = 1;
+}
+
+
+module Untyped {
+
+  interface Ast {
+    fun accept(AstVisitor) : unit; 
+    evolves fun typeCheck(Checker, Type) : !Typed.TyAst;
+  }
+
+  interface AstVisitor {
+    fun visitOp(Op) : unit;
+    fun visitLitBool(LitBool) : unit;
+    fun visitLitInt(LitInt) : unit;
+    fun visitDeref(Deref) : unit;
+    fun visitAssign(Assign) : unit;
+    fun visitSkip(Skip) : unit;
+    fun visitSeq(Seq) : unit;
+    fun visitIf(If) : unit;
+    fun visitWhile(While) : unit;
+  }
+  
+  class LitInt implements Ast {
+    public value : int;
+    constructor(value : int) { this.value = value; }
+
+    fun accept(v : AstVisitor) : unit { v:visitLitInt(this); }
+    evolves fun typeCheck(c : Checker, type : Type) : !Typed.TyAst { 
+      this evolves Typed.TyLitInt(c, type)
+    }
+  }
+
+  class Op implements Ast {
+    public evolves lhs : Ast;
+    public evolves rhs : Ast;
+    public op : int;
+
+    constructor(lhs : !Ast, op : int, rhs : !Ast) { 
+      this.lhs = lhs; 
+      this.rhs = rhs; 
+      this.op = op; 
+    }
+
+    fun accept(v : AstVisitor) : unit { v:visitOp(this); }
+
+    evolves fun typeCheck(c : Checker, type : Type) : !Typed.TyAst { 
+      let tyOp = this evolves Typed.TyOp(c, type);
+      if this.op == Tokens.add {
+        tyOp evolves Typed.TyAdd(c)
+      } else if this.op == Tokens.gt {
+        tyOp evolves Typed.TyGt(c)
+      } else {
+        // TODO shouldn't have to do this
+        let ignore = tyOp evolves Typed.TyGt(c);
+        Std.String.fail("Unknkown OP token")
+      }
+    }
+  }
+
+
+  class LitBool implements Ast {
+    public value : bool;
+    constructor(value : bool) { this.value = value; }
+    fun accept(v : AstVisitor) : unit { v:visitLitBool(this); }
+    evolves fun typeCheck(c : Checker, type : Type) : !Typed.TyAst { 
+      this evolves Typed.TyLitBool(c, type)
+    }
+  }
+
+  class Deref implements Ast {
+    public loc : []char;
+    constructor(loc : []char) { this.loc = loc; }
+    fun accept(v : AstVisitor) : unit { v:visitDeref(this); }
+    evolves fun typeCheck(c : Checker, type : Type) : !Typed.TyAst {
+      this evolves Typed.TyDeref(c, type);
+    }
+  }
+
+  class Assign implements Ast {
+    public loc : []char;
+    public evolves rhs : Ast;
+
+    constructor(loc : []char, rhs : !Ast) { this.loc = loc; this.rhs = rhs; }
+    fun accept(v : AstVisitor) : unit { v:visitAssign(this); }
+    evolves fun typeCheck(c : Checker, type : Type) : !Typed.TyAst { 
+      this evolves Typed.TyAssign(c, type);
+    }
+  }
+
+  class Skip implements Ast {
+    constructor() {}
+    fun accept(v : AstVisitor) : unit { v:visitSkip(this); }
+    evolves fun typeCheck(c : Checker, type : Type) : !Typed.TyAst { 
+      this evolves Typed.TySkip(c, type);
+    }
+  }
+
+  class Seq implements Ast {
+    public evolves lhs : Ast;
+    public evolves rhs : Ast;
+
+    constructor(lhs : !Ast, rhs : !Ast) { this.lhs = lhs; this.rhs = rhs; }
+    fun accept(v : AstVisitor) : unit { v:visitSeq(this); }
+    evolves fun typeCheck(c : Checker, type : Type) : !Typed.TyAst { 
+      this evolves Typed.TySeq(c, type);
+    }
+  }
+
+  
+  fun mkSeq(stmts: []mut ?!Ast) : !Ast {
+    if stmts.len == 0 { return new Skip(); }
+
+    let node: ?!Ast = null;
+    node >=< stmts[0];
+
+
+    let i = 1;
+    while i < stmts.len {
+      let rhs: ?!Ast = null;
+      rhs >=< stmts[i];
+      let lhs: ?!Ast = null;
+      lhs >=< node;
+      let newNode: ?!Ast = new Seq(lhs.?, rhs.?);
+      node >=< newNode;
+      i = i + 1;
+    }
+    node.?
+  }
+
+  class If implements Ast {
+    public evolves cnd : Ast;
+    public evolves thn : Ast;
+    public evolves els : Ast;
+
+    constructor(cnd : !Ast, thn : !Ast, els: !Ast) { this.cnd = cnd; this.thn = thn; this.els = els; }
+    fun accept(v : AstVisitor) : unit { v:visitIf(this); }
+    evolves fun typeCheck(c : Checker, type : Type) : !Typed.TyAst { 
+      this evolves Typed.TyIf(c, type);
+    }
+  }
+
+  class While implements Ast {
+    public evolves cond : Ast;
+    public evolves body : Ast;
+    constructor(cond : !Ast, body : !Ast) { this.cond = cond; this.body = body; }
+    fun accept(v : AstVisitor) : unit { v:visitWhile(this); }
+    evolves fun typeCheck(c : Checker, type : Type) : !Typed.TyAst { 
+      this evolves Typed.TyWhile(c, type);
+    }
+  }
+
+  class AstPrinter implements AstVisitor {
+    constructor () {}
+    fun visitOp(op : Op) : unit {
+      op.lhs:accept(this);
+      if op.op == Tokens.add {
+        Std.String.print(" + ");
+      } else if op.op == Tokens.gt {
+        Std.String.print(" >= ");
+      } else {
+        Std.String.print(" UNKNOWN_OP ");
+      }
+      op.rhs:accept(this);
+    }
+    fun visitLitBool(b: LitBool) : unit {
+      Std.Bool.print(b.value);
+    }
+    fun visitLitInt(i: LitInt) : unit {
+      Std.Int.print(i.value);
+    }
+    fun visitDeref(d : Deref) : unit {
+      Std.Strings.print(["!", d.loc]);
+    }
+    fun visitAssign(assign : Assign) : unit {
+      Std.Strings.print([assign.loc, " := "]);
+      assign.rhs:accept(this);
+    }
+    fun visitSkip(skip : Skip) : unit {
+      Std.String.print("skip");
+    }
+    fun visitSeq(seq : Seq) : unit {
+      seq.lhs:accept(this);
+      Std.String.println(";");
+      seq.rhs:accept(this);
+    }
+    fun visitIf(if_ : If) : unit {
+      Std.String.print("if ");
+      if_.cnd:accept(this);
+      Std.String.println(" then");
+      if_.thn:accept(this);
+      Std.String.println("\nelse");
+      if_.els:accept(this);
+    }
+    fun visitWhile(while_ : While) : unit {
+      Std.String.print("while ");
+      while_.cond:accept(this);
+      Std.String.println(" do");
+      while_.body:accept(this);
+    }
+  }
+}
+
+module Typed {
+  interface TyAst implements Untyped.Ast {
+    fun acceptTy(TyAstVisitor) : unit; 
+    fun getType() : Type;
+  }
+
+  interface TyAstVisitor {
+    fun visitAdd(TyAdd) : unit;
+    fun visitGt(TyGt) : unit;
+    fun visitLitBool(TyLitBool) : unit;
+    fun visitLitInt(TyLitInt) : unit;
+    fun visitDeref(TyDeref) : unit;
+    fun visitAssign(TyAssign) : unit;
+    fun visitSkip(TySkip) : unit;
+    fun visitSeq(TySeq) : unit;
+    fun visitIf(TyIf) : unit;
+    fun visitWhile(TyWhile) : unit;
+  }
+
+  class TyOp < Untyped.Op {
+    public overrides evolves lhs : TyAst;
+    public overrides evolves rhs : TyAst;
+    type : Type;
+    fun getType() : Type { this.type }
+
+
+    constructor(c : Checker, type : Type) evolves Untyped.Op {
+      this.type = type;
+
+      this.lhs = this.lhs:typeCheck(c, c:types().int);
+      this.rhs = this.rhs:typeCheck(c, c:types().int);
+    }
+  }
+
+  class TyAdd < TyOp implements TyAst { 
+    constructor(c : Checker) evolves TyOp {
+      c:expect(c:types().int, this.type);
+    } 
+    fun acceptTy(v : TyAstVisitor) : unit { v:visitAdd(this); }
+  }
+  class TyGt < TyOp implements TyAst { 
+    constructor(c : Checker) evolves TyOp {
+      c:expect(c:types().bool, this.type);
+    } 
+    fun acceptTy(v : TyAstVisitor) : unit { v:visitGt(this); }
+ }
+
+  class TyLitBool < Untyped.LitBool implements TyAst {
+    type : Type; 
+    fun getType() : Type { this.type }
+
+    constructor(c : Checker, type : Type) evolves Untyped.LitBool {
+      c:expect(c:types().bool, type);
+      this.type = type; 
+    }
+    fun acceptTy(v : TyAstVisitor) : unit { v:visitLitBool(this); }
+    
+  }
+
+  class TyLitInt < Untyped.LitInt implements TyAst {
+    type : Type; 
+    fun getType() : Type { this.type }
+
+    constructor(c : Checker, type : Type) evolves Untyped.LitInt { 
+      c:expect(c:types().int, type);
+      this.type = type; 
+    }
+    fun acceptTy(v : TyAstVisitor) : unit { v:visitLitInt(this); }
+
+  }
+  class TyDeref < Untyped.Deref implements TyAst {
+    resolvedLoc : int;
+    type : Type; 
+    fun getType() : Type { this.type }
+
+    constructor(c : Checker, type : Type) evolves Untyped.Deref {
+      this.resolvedLoc = c:getInContext(this.loc);
+      c:expect(c:types().int, type);
+      this.type = type;
+    }
+    fun acceptTy(v : TyAstVisitor) : unit { v:visitDeref(this); }
+  }
+
+  class TyAssign < Untyped.Assign implements TyAst {
+    public overrides evolves rhs : TyAst;
+    resolvedLoc : int;
+    type : Type; 
+    fun getType() : Type { this.type }
+
+    constructor(c : Checker, type : Type) evolves Untyped.Assign {
+      this.resolvedLoc = c:getInContext(this.loc);
+      this.rhs = this.rhs:typeCheck(c, c:types().int);
+      this.type = type;
+    }
+    fun acceptTy(v : TyAstVisitor) : unit { v:visitAssign(this); }
+  }
+
+  class TySkip < Untyped.Skip implements TyAst {
+    type : Type; 
+    fun getType() : Type { this.type }
+    constructor(c : Checker, type : Type) evolves Untyped.Skip {
+      c:expect(c:types().unit, type);
+      this.type = type;
+    }
+    fun acceptTy(v : TyAstVisitor) : unit { v:visitSkip(this); }
+  }
+
+  class TySeq < Untyped.Seq implements TyAst {
+    public overrides evolves lhs : TyAst;
+    public overrides evolves rhs : TyAst;
+    type : Type;
+    fun getType() : Type { this.type }
+
+
+    constructor(c : Checker, type : Type) evolves Untyped.Seq {
+      this.type = type;
+
+      this.lhs = this.lhs:typeCheck(c, c:types().unit);
+      this.rhs = this.rhs:typeCheck(c, type);
+    }
+    fun acceptTy(v : TyAstVisitor) : unit { v:visitSeq(this); }
+  }
+
+  class TyIf < Untyped.If implements TyAst {
+    public overrides evolves cnd : TyAst;
+    public overrides evolves thn : TyAst;
+    public overrides evolves els : TyAst;
+    type : Type;
+    fun getType() : Type { this.type }
+    
+    constructor(c : Checker, type : Type) evolves Untyped.If {
+      this.type = type;
+
+      this.cnd = this.cnd:typeCheck(c, c:types().bool);
+      this.thn = this.thn:typeCheck(c, type);
+      this.els = this.els:typeCheck(c, type);
+    }
+    fun acceptTy(v : TyAstVisitor) : unit { v:visitIf(this); }
+  }
+
+  class TyWhile < Untyped.While implements TyAst {
+    public overrides evolves cond : TyAst;
+    public overrides evolves body : TyAst;
+    type : Type;
+    fun getType() : Type { this.type }
+    
+    constructor(c : Checker, type : Type) evolves Untyped.While {
+      c:expect(c:types().unit, type);
+      this.type = type;
+
+      this.cond = this.cond:typeCheck(c, c:types().bool);
+      this.body = this.body:typeCheck(c, type);
+    }
+    fun acceptTy(v : TyAstVisitor) : unit { v:visitWhile(this); }
+  }
+
+  class TyAstPrinter implements TyAstVisitor {
+    constructor () {}
+    fun visitAdd(add : TyAdd) : unit {
+      Std.String.print("(");
+      add.lhs:acceptTy(this);
+      Std.String.print(" + ");
+      add.rhs:acceptTy(this);
+      Std.Strings.print([" : ", add:getType():getName(), ")"]);
+    }
+    fun visitGt(gt : TyGt) : unit {
+      Std.String.print("(");
+      gt.lhs:acceptTy(this);
+      Std.String.print(" >= ");
+      gt.rhs:acceptTy(this);
+      Std.Strings.print([" : ", gt:getType():getName(), ")"]);
+    }
+    fun visitLitBool(b: TyLitBool) : unit {
+      Std.String.print("(");
+      Std.Bool.print(b.value);
+      Std.Strings.print([" : ", b:getType():getName(), ")"]);
+    }
+    fun visitLitInt(i: TyLitInt) : unit {
+      Std.String.print("(");
+      Std.Int.print(i.value);
+      Std.Strings.print([" : ", i:getType():getName(), ")"]);
+    }
+    fun visitDeref(d : TyDeref) : unit {
+      Std.Strings.print(["(!", d.loc, " : ", d:getType():getName(), ")"]);
+    }
+    fun visitAssign(assign : TyAssign) : unit {
+      Std.Strings.print(["(", assign.loc, " := "]);
+      assign.rhs:acceptTy(this);
+      Std.Strings.print([" : ", assign:getType():getName(), ")"]);
+    }
+    fun visitSkip(skip : TySkip) : unit {
+      Std.Strings.print(["(skip : ", skip:getType():getName(), ")"]);
+    }
+    fun visitSeq(seq : TySeq) : unit {
+      Std.String.print("(");
+      seq.lhs:acceptTy(this);
+      Std.String.println(";");
+      seq.rhs:acceptTy(this);
+      Std.Strings.print([" : ", seq:getType():getName(), ")"]);
+    }
+    fun visitIf(if_ : TyIf) : unit {
+      Std.String.print("(if ");
+      if_.cnd:acceptTy(this);
+      Std.String.println(" then");
+      if_.thn:acceptTy(this);
+      Std.String.println("\nelse");
+      if_.els:acceptTy(this);
+      Std.Strings.print([" : ", if_:getType():getName(), ")"]);
+    }
+    fun visitWhile(while_ : TyWhile) : unit {
+      Std.String.print("(while ");
+      while_.cond:acceptTy(this);
+      Std.String.println(" do");
+      while_.body:acceptTy(this);
+      Std.Strings.print([" : ", while_:getType():getName(), ")"]);
+    }
+  }
+}
+
+
+
+fun main() : unit {
+  let ast: !Untyped.Ast = 
+    Untyped.mkSeq(
+      [ new Untyped.Assign("l1", new Untyped.LitInt(0))
+      , new Untyped.Assign("l2", new Untyped.LitInt(10))
+      , new Untyped.Assign("l3", new Untyped.Op(new Untyped.Deref("l1"), Tokens.add, new Untyped.Deref("l2")))
+      ]);
+  ast:accept(new Untyped.AstPrinter());
+  Std.String.println("\nType Checking...");
+  let c = new Checker(["l1", "l2", "l3"]);
+  let typed_ast: !Typed.TyAst = ast:typeCheck(c, c:types().unit);
+  typed_ast:acceptTy(new Typed.TyAstPrinter());
+  Std.String.println("\nDone!");
+}

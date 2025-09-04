@@ -12,6 +12,24 @@ module Numeric : sig
 end
 
 module Class_id : Unique_id.Id
+module Interface_id : Unique_id.Id
+
+module Ownership : sig
+  type t =
+    | Owned
+    | Shared
+  [@@deriving sexp_of, equal]
+
+  val is_owned : t -> bool
+  val is_shared : t -> bool
+end
+
+module Object_kind : sig
+  type t =
+    | Class of Class_id.t
+    | Interface of Interface_id.t
+  [@@deriving sexp_of, equal]
+end
 
 type fun_signature =
   { args : t list
@@ -29,15 +47,15 @@ and t =
       ; elt : t
       }
   | Fun of fun_signature
-  | Object of Class_id.t (** An object is an instance of a particular class. *)
-  | Owned_object of Class_id.t
+  | Object of (Ownership.t * Object_kind.t)
+  (** An object is an instance of a particular class/interface, with an ownership permission. *)
   | Top_object
   | Option of t
 [@@deriving sexp_of, equal]
 
 val is_reference : t -> bool
-val class_id_exn : t -> Class_id.t
 val erase_ownership : t -> t
+val promote_ownership : t -> t
 
 module Class : sig
   type ty := t
@@ -47,9 +65,12 @@ module Class : sig
       { ty : ty
       ; mut : bool
       ; overrides : bool
+      ; evolves : bool
       ; visibility : Ast.Decl.Visibility.t
       }
     [@@deriving sexp_of, fields ~getters]
+
+    val evolves : t -> bool
   end
 
   module Constructor : sig
@@ -61,6 +82,7 @@ module Class : sig
       { visibility : Ast.Decl.Visibility.t
       ; function_ : fun_signature
       ; overrides : bool
+      ; receiver_evolves : bool
       }
     [@@deriving sexp_of, fields ~getters]
 
@@ -74,8 +96,26 @@ module Class : sig
     ; evolver : Constructor.t option
     ; methods : Method.t Ast.Ident.Map.t
     ; super : Class_id.t option
+    ; implements : Interface_id.t list
     }
   [@@deriving sexp_of]
 end
 
-val to_string : resolve_class_name:(Class_id.t -> string) -> t -> string
+module Interface : sig
+  module Method_signature : sig
+    type t =
+      { function_signature : fun_signature
+      ; receiver_evolves : bool
+      }
+    [@@deriving sexp_of]
+  end
+
+  type t =
+    { id : Interface_id.t
+    ; implements : Interface_id.t list
+    ; method_signatures : Method_signature.t Ast.Ident.Map.t
+    }
+  [@@deriving sexp_of]
+end
+
+val to_string : resolve_object_kind_name:(Object_kind.t -> string) -> t -> string

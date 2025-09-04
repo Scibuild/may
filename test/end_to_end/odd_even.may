@@ -1,0 +1,9 @@
+import Std from "lib/std.may";
+import Odd from "lib/mutual_odd.may";
+
+fun main(): unit {
+  Std.Bool.print(Odd.odd(11));
+  Std.String.print("\n");
+  Std.Bool.print(Odd.odd(10));
+  Std.String.print("\n");
+}

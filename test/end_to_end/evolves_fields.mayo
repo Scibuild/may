@@ -1,0 +1,46 @@
+import Std from "lib/std.may";
+
+class A {
+  evolves x : X;
+
+  constructor() { this.x = new X(); }
+
+  fun doPrint(): unit {
+    Std.String.println("I am A");
+    this.x:doPrintToo();
+  }
+}
+
+class X {
+  constructor () {}
+  fun doPrintToo() : unit { 
+    Std.String.println("  and I am X");
+  }
+}
+
+class B < A {
+  overrides evolves x : Y;
+
+  constructor() evolves A { 
+    this.x = this.x evolves Y(); 
+  }
+
+  overrides fun doPrint(): unit {
+    Std.String.println("I am B");
+    this.x:doPrintToo();
+  }
+}
+
+class Y < X {
+  constructor () evolves X {}
+  fun doPrintToo() : unit { 
+    Std.String.println("  and I am Y");
+  }
+}
+
+fun main() : unit {
+  let a = new A();
+  a:doPrint();
+  let b = a evolves B();
+  a:doPrint();
+}

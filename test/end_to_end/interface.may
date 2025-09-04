@@ -1,0 +1,42 @@
+import Std from "lib/std.may";
+
+interface IA {
+  fun a() : unit;
+}
+
+class A implements IA {
+  fun a() : unit {
+    Std.String.println("I'm an A!")
+  }
+
+  constructor () {}
+}
+
+class B implements IA {
+  fun a() : unit {
+    Std.String.println("I'm a B!")
+  }
+
+  constructor () {}
+}
+
+class C < A {
+  overrides fun a() : unit {
+    Std.String.println("I'm a C!")
+  }
+
+  constructor() { super(); }
+  constructor() evolves A { }
+}
+
+fun useIATwice(ia : IA): unit {
+  ia:a();
+  ia:a();
+}
+
+fun main() : unit {
+  useIATwice(new A());
+  useIATwice(new B());
+  useIATwice(new C());
+  useIATwice(new A() evolves C().?);
+}

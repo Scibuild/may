@@ -22,6 +22,32 @@ end
 (** TODO: Consider moving this. *)
 module Class_id = Unique_id.Int63 ()
 
+module Interface_id = Unique_id.Int63 ()
+
+module Ownership = struct
+  type t =
+    | Owned
+    | Shared
+  [@@deriving sexp_of, equal]
+
+  let is_owned = function
+    | Owned -> true
+    | Shared -> false
+  ;;
+
+  let is_shared = function
+    | Shared -> true
+    | Owned -> false
+  ;;
+end
+
+module Object_kind = struct
+  type t =
+    | Class of Class_id.t
+    | Interface of Interface_id.t
+  [@@deriving sexp_of, equal]
+end
+
 type fun_signature =
   { args : t list
   ; ret : t
@@ -37,34 +63,27 @@ and t =
       ; elt : t
       }
   | Fun of fun_signature (** An object is an instance of a particular class. *)
-  | Object of Class_id.t
-  | Owned_object of Class_id.t
+  | Object of (Ownership.t * Object_kind.t)
   | Top_object
   | Option of t
 [@@deriving sexp_of, equal]
 
 let is_reference = function
-  | Bottom -> false
-  | Unit -> false
-  | Bool -> false
-  | Numeric _ -> false
-  | Array _ -> false
-  | Fun _ -> true
-  | Object _ -> true
-  | Owned_object _ -> true
-  | Top_object -> true
-  | Option _ -> false
-;;
-
-let class_id_exn = function
-  | Object class_id | Owned_object class_id -> class_id
-  | ty -> raise_s [%message "attempted to get class id of non object type" (ty : t)]
+  | Option _ | Bottom | Unit | Bool | Numeric _ -> false
+  | Array _ | Fun _ | Object _ | Top_object -> true
 ;;
 
 let erase_ownership = function
-  | Owned_object id -> Object id
-  | Option (Owned_object id) -> Option (Object id)
+  | Object (Owned, obj) -> Object (Shared, obj)
+  | Option (Object (Owned, obj)) -> Option (Object (Shared, obj))
   | _ as ty -> ty
+;;
+
+let promote_ownership = function
+  | Object (Shared, obj) -> Object (Owned, obj)
+  | Option (Object (Shared, obj)) -> Option (Object (Owned, obj))
+  | _ ->
+    failwith "cannot promote ownership of non shared object type. this is a compiler bug"
 ;;
 
 module Class = struct
@@ -75,11 +94,13 @@ module Class = struct
       { ty : ty
       ; mut : bool
       ; overrides : bool
+      ; evolves : bool
       ; visibility : Ast.Decl.Visibility.t
       }
     [@@deriving sexp_of, fields ~getters]
 
     let overrides t = t.overrides
+    let evolves t = t.evolves
   end
 
   module Constructor = struct
@@ -91,6 +112,7 @@ module Class = struct
       { visibility : Ast.Decl.Visibility.t
       ; function_ : fun_signature
       ; overrides : bool
+      ; receiver_evolves : bool
       }
     [@@deriving sexp_of, fields ~getters]
 
@@ -104,26 +126,45 @@ module Class = struct
     ; evolver : Constructor.t option [@sexp.option]
     ; methods : Method.t Ast.Ident.Map.t
     ; super : Class_id.t option
+    ; implements : Interface_id.t list
     }
   [@@deriving sexp_of]
 end
 
-let rec to_string ~resolve_class_name = function
+module Interface = struct
+  module Method_signature = struct
+    type t =
+      { function_signature : fun_signature
+      ; receiver_evolves : bool
+      }
+    [@@deriving sexp_of]
+  end
+
+  type t =
+    { id : Interface_id.t
+    ; implements : Interface_id.t list
+    ; method_signatures : Method_signature.t Ast.Ident.Map.t
+    }
+  [@@deriving sexp_of]
+end
+
+let rec to_string ~resolve_object_kind_name = function
   | Bottom -> "noreturn"
   | Numeric Int -> "int"
   | Numeric Char -> "char"
   | Numeric Float -> "float"
   | Unit -> "unit"
   | Bool -> "bool"
-  | Array { mut = true; elt } -> [%string "[]mut %{to_string ~resolve_class_name elt}"]
-  | Array { mut = false; elt } -> [%string "[]%{to_string ~resolve_class_name elt}"]
-  | Object class_id -> resolve_class_name class_id
-  | Owned_object class_id -> "!" ^ resolve_class_name class_id
+  | Array { mut = true; elt } ->
+    [%string "[]mut %{to_string ~resolve_object_kind_name elt}"]
+  | Array { mut = false; elt } -> [%string "[]%{to_string ~resolve_object_kind_name elt}"]
+  | Object (Shared, obj_kind) -> resolve_object_kind_name obj_kind
+  | Object (Owned, obj_kind) -> "!" ^ resolve_object_kind_name obj_kind
   | Top_object -> "object"
   | Fun { args; ret } ->
     "("
-    ^ (List.map args ~f:(to_string ~resolve_class_name) |> String.concat ~sep:", ")
+    ^ (List.map args ~f:(to_string ~resolve_object_kind_name) |> String.concat ~sep:", ")
     ^ ") -> "
-    ^ to_string ~resolve_class_name ret
-  | Option ty -> "?" ^ to_string ~resolve_class_name ty
+    ^ to_string ~resolve_object_kind_name ret
+  | Option ty -> "?" ^ to_string ~resolve_object_kind_name ty
 ;;

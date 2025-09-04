@@ -1,0 +1,7 @@
+import Std from "../lib/std.may";
+
+
+
+fun main() : unit {
+  Std.String.println("Hello world!");
+}

@@ -1,0 +1,35 @@
+module String {
+  extern fun print([]char) : unit = "internal_may_print_string";
+  fun println(s : []char) : unit {
+    print(s);
+    print("\n");
+  }
+}
+
+module Int {
+  extern fun print(int) : unit = "internal_may_print_int";
+  fun println(i : int) : unit {
+    print(i);
+    String.print("\n");
+  }
+
+  fun printInfo(varname : []char, i : int) : unit {
+    String.print(varname);
+    String.print(" = ");
+    println(i);
+  }
+}
+
+module Bool {
+  fun print(b : bool) : unit {
+    if b {
+      String.print("true");
+    } else {
+      String.print("false");
+    }
+  }
+  fun println(b : bool) : unit {
+    print(b);
+    String.print("\n");
+  }
+}

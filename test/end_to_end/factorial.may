@@ -1,0 +1,27 @@
+import Std from "lib/std.may";
+fun factorialRec(x : int): int {
+  if x <= 0 { 
+    1
+  } else {
+    x * factorialRec(x - 1)
+  }
+}
+
+fun factorialFast(x : int): int {
+  let total = 1;
+  while x >= 1 {
+    total = x * total;
+    x = x - 1;
+  }
+  total
+}
+
+fun main() : unit {
+  Std.String.println("Hello world!");
+  Std.String.print("Recursive factorial of 5: ");
+  Std.Int.println(factorialRec(5));
+  Std.String.print("Loopy factorial of 5: ");
+  Std.Int.println(factorialFast(5));
+  Std.String.print("Loopy factorial of 15: ");
+  Std.Int.println(factorialFast(15));
+}

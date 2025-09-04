@@ -1,7 +1,12 @@
 (library
  (name test_may)
- (libraries core may expectable core_kernel.composition_infix async)
- (inline_tests)
+ (libraries core may expectable core_kernel.composition_infix async
+  expect_test_helpers_async)
+ (inline_tests
+  (deps
+   ../bin/may.exe
+   ../runtime/libmayruntime.a
+   (source_tree end_to_end/)))
  (preprocess
   (pps ppx_jane)))
 

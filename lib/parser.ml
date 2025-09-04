@@ -62,6 +62,10 @@ let token_to_string (tk : Menhir_parser.token) =
   | EXTERN -> "EXTERN"
   | DOT_DOT -> "DOT_DOT"
   | XCHG -> "XCHG"
+  | IMPORT -> "IMPORT"
+  | FROM -> "FROM"
+  | INTERFACE -> "INTERFACE"
+  | IMPLEMENTS -> "IMPLEMENTS"
 ;;
 
 type token = Menhir_parser.token

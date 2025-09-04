@@ -1,0 +1,10 @@
+import Std from "lib/std.may";
+import Bar from "lib/mutual_types/bar.may";
+import Foo from "lib/mutual_types/foo.may";
+
+fun main(): unit {
+  Std.Bool.print(Bar.bar(new Foo.T()));
+  Std.String.print("\n");
+  Std.Bool.print(Foo.foo(new Bar.T()));
+  Std.String.print("\n");
+}

@@ -36,7 +36,7 @@ let rec propogate_max_fields_size
   | None -> ()
   | Some super_id ->
     let super_layout : Row.t = Hashtbl.find_exn t super_id in
-    (match super_layout.max_fields_size < size with
+    (match Option.is_some class_sig.evolver && super_layout.max_fields_size < size with
      | true ->
        super_layout.max_fields_size <- size;
        let super_sig = Hashtbl.find_exn signatures super_id in

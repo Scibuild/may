@@ -6,6 +6,7 @@ module Bytecode_compiler = Bytecode_compiler
 module Comp_error = Comp_error
 module Mode = Mode
 module Resolved_ident = Resolved_ident
+module Range = Range
 module Qbe_backend = Qbe_backend
 module Tast = Tast
 module Type = Type

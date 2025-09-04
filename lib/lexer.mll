@@ -53,6 +53,10 @@ rule next_token = parse
   | "orelse" { ORELSE }
   | "null" { NULL }
   | "extern" { EXTERN }
+  | "from" { FROM }
+  | "import" { IMPORT }
+  | "interface" { INTERFACE }
+  | "implements" { IMPLEMENTS }
 
   | ',' { COMMA }
   | '.' { DOT }
@@ -64,8 +68,8 @@ rule next_token = parse
   | '/' { SLASH }
   | '<' { LT }
   | '>' { GT }
-  | "<=" { GE }
-  | ">=" { LE }
+  | "<=" { LE }
+  | ">=" { GE }
   | "!=" { NEQ }
   | "==" { EQQ }
   | "=" { EQ }

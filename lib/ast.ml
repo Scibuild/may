@@ -332,6 +332,11 @@ module Decl = struct
     ;;
   end
 
+  let mk_on_line ~depth s =
+    let indentation = String.make depth ' ' in
+    "\n" ^ indentation ^ s
+  ;;
+
   module Class = struct
     module Field = struct
       type t =
@@ -339,19 +344,21 @@ module Decl = struct
         ; ty : Type.t
         ; visibility : Visibility.t
         ; overrides : bool
+        ; evolves : bool
         ; mut : bool
         }
       [@@deriving sexp_of]
 
-      let to_string ~depth { visibility; mut; overrides; name; ty } =
+      let to_string ~depth { visibility; mut; overrides; evolves; name; ty } =
         let visibility_str = Visibility.to_string ~default:Private visibility in
         let mut_str = if mut then "mut " else "" in
         let overrides_str = if overrides then "overrides " else "" in
-        let indentation = String.make (depth + 2) ' ' in
-        [%string
-          "\n\
-           %{indentation}%{visibility_str}%{overrides_str}%{mut_str}%{name#Ident} : \
-           %{ty#Type};"]
+        let evolves_str = if evolves then "evolves " else "" in
+        mk_on_line
+          ~depth
+          [%string
+            "%{visibility_str}%{overrides_str}%{evolves_str}%{mut_str}%{name#Ident} : \
+             %{ty#Type};"]
       ;;
     end
 
@@ -369,9 +376,9 @@ module Decl = struct
           | Some ident -> [%string " evolves %{ident#Path}"]
           | None -> ""
         in
-        let indentation = String.make (depth + 2) ' ' in
-        [%string
-          "\n%{indentation}constructor(%{args#Function.Args})%{evolves_str} %{body#Expr}"]
+        mk_on_line
+          ~depth
+          [%string "constructor(%{args#Function.Args})%{evolves_str} %{body#Expr}"]
       ;;
     end
 
@@ -380,51 +387,121 @@ module Decl = struct
         { visibility : Visibility.t
         ; function_ : Function.t
         ; overrides : bool
+        ; receiver_evolves : bool
         }
       [@@deriving sexp_of]
 
-      let to_string ~depth { visibility; function_; overrides } =
-        let indentation = String.make (depth + 2) ' ' in
+      let to_string ~depth { visibility; function_; overrides; receiver_evolves } =
         let overrides_str = if overrides then "overrides " else "" in
-        "\n"
-        ^ indentation
-        ^ Visibility.to_string ~default:Public visibility
-        ^ overrides_str
-        ^ Function.to_string function_
+        let receiver_evolves_str = if receiver_evolves then "evolves " else "" in
+        mk_on_line
+          ~depth
+          (Visibility.to_string ~default:Public visibility
+           ^ overrides_str
+           ^ receiver_evolves_str
+           ^ Function.to_string function_)
       ;;
     end
 
     type t =
       { name : Ident.t
-      ; super_type :
-          Path.t option (* TODO: fix that you can't reference classes in other modules *)
+      ; super_type : Path.t option
+      ; implements : Path.t list
       ; fields : Field.t Node.t list
       ; constructors : Constructor.t Node.t list
       ; methods : Method.t Node.t list
       }
     [@@deriving sexp_of]
 
-    let to_string ~depth { name; super_type; fields; constructors; methods } =
+    let implements_to_string implements =
+      match implements with
+      | [] -> ""
+      | _ ->
+        let s = implements |> List.map ~f:Path.to_string |> String.concat ~sep:", " in
+        [%string "implements %{s} "]
+    ;;
+
+    let to_string ~depth { name; super_type; implements; fields; constructors; methods } =
       let super_type_string =
         match super_type with
         | Some path -> [%string " < %{path#Path}"]
         | None -> ""
       in
       let fields_string =
-        fields |> List.map ~f:(Node.data >> Field.to_string ~depth) |> String.concat
+        fields
+        |> List.map ~f:(Node.data >> Field.to_string ~depth:(depth + 2))
+        |> String.concat
       in
       let constructors_string =
         constructors
-        |> List.map ~f:(Node.data >> Constructor.to_string ~depth)
+        |> List.map ~f:(Node.data >> Constructor.to_string ~depth:(depth + 2))
         |> String.concat
       in
-      let method_list_to_string methods =
-        methods |> List.map ~f:(Node.data >> Method.to_string ~depth) |> String.concat
+      let methods_string =
+        methods
+        |> List.map ~f:(Node.data >> Method.to_string ~depth:(depth + 2))
+        |> String.concat
       in
-      let indent = "\n" ^ String.make depth ' ' in
-      [%string
-        "%{indent}class %{name#Ident}%{super_type_string} { \
-         %{fields_string}%{constructors_string}%{indent}%{method_list_to_string methods}}\n"]
+      mk_on_line
+        ~depth
+        [%string
+          "class %{name#Ident}%{super_type_string} %{implements_to_string implements}{ \
+           %{fields_string}%{constructors_string}%{methods_string}"]
+      ^ mk_on_line ~depth "}\n"
+    ;;
+  end
+
+  module Function_signature = struct
+    type t =
+      { name : Ident.t
+      ; arg_tys : Type.t list
+      ; ret_type : Type.t
+      }
+    [@@deriving sexp_of]
+
+    let to_string { name; arg_tys; ret_type } =
+      let arg_tys_string =
+        arg_tys |> List.map ~f:Type.to_string |> String.concat ~sep:", "
+      in
+      [%string "fun %{name#Ident}(%{arg_tys_string}) : %{ret_type#Type}"]
+    ;;
+  end
+
+  module Interface = struct
+    module Method_signature = struct
+      type t =
+        { function_signature : Function_signature.t
+        ; receiver_evolves : bool
+        }
+      [@@deriving sexp_of]
+
+      let to_string ~depth { function_signature; receiver_evolves } =
+        let receiver_evolves_str = if receiver_evolves then "evolves " else "" in
+        mk_on_line
+          ~depth
+          (receiver_evolves_str ^ Function_signature.to_string function_signature)
+      ;;
+    end
+
+    type t =
+      { name : Ident.t
+      ; implements : Path.t list
+      ; method_signatures : Method_signature.t Node.t list
+      }
+    [@@deriving sexp_of]
+
+    let to_string ~depth { name; implements; method_signatures } =
+      let method_signatures_string =
+        method_signatures
+        |> List.map ~f:(Node.data >> Method_signature.to_string ~depth:(depth + 2))
+        |> String.concat
+      in
+      mk_on_line
+        ~depth
+        [%string
+          "interface %{name#Ident} %{Class.implements_to_string \
+           implements}{%{method_signatures_string}"]
+      ^ mk_on_line ~depth "}\n"
     ;;
   end
 
@@ -441,11 +518,15 @@ module Decl = struct
         ; decls : t list
         }
     | Extern_function of
-        { name : Ident.t
-        ; arg_tys : Type.t list
-        ; ret_type : Type.t
+        { function_signature : Function_signature.t
         ; external_name : string
         }
+    | Import of
+        { name : Ident.t
+        ; file : string
+        ; visibility : Visibility.t
+        }
+    | Interface of Interface.t
   [@@deriving sexp_of]
 
   and t = decl_kind Node.t
@@ -466,18 +547,19 @@ module Decl = struct
        | None -> [%string "%{indent}const %{ident#Ident} =  %{value#Expr};"])
     | Function f -> indent ^ Function.to_string f
     | Class c -> Class.to_string ~depth c
-    | Extern_function { name; arg_tys; ret_type; external_name } ->
-      let arg_tys_string =
-        arg_tys |> List.map ~f:Type.to_string |> String.concat ~sep:", "
-      in
+    | Extern_function { function_signature; external_name } ->
       [%string
-        "%{indent}extern fun %{name#Ident}(%{arg_tys_string}) : %{ret_type#Type} = \
-         \"%{external_name}\";"]
+        "%{indent}extern %{function_signature#Function_signature} = \"%{external_name}\";"]
     | Module { name; decls } ->
       let decl_strings =
         List.map decls ~f:(fun decl -> to_string decl ~depth:(depth + 2))
       in
       [%string
         "%{indent}module %{name#Ident} {\n%{String.concat decl_strings}%{indent}}\n"]
+    | Import { name; file; visibility } ->
+      [%string
+        "%{indent} %{Visibility.to_string ~default:Private visibility}import \
+         %{name#Ident} from \"%{file}\""]
+    | Interface i -> Interface.to_string ~depth i
   ;;
 end

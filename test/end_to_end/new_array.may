@@ -1,0 +1,6 @@
+import Std from "lib/std.may";
+
+fun main(): unit {
+  let a = new [6]int(0);
+  Std.Int.println(a[1]);
+}

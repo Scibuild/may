@@ -1,0 +1,46 @@
+import Std from "lib/std.may";
+
+class A {
+  x : int;
+
+  constructor(x : int) { this.x = x; } 
+
+  evolves fun evolveMe() : !B {
+    let c : !B = this evolves B(22);
+    return c;
+  }
+}
+
+class B < A {
+  y : int;
+
+  constructor(x : int, y : int) { super(x); this.y = y; } 
+  constructor(y : int) evolves A { this.y = y; } 
+
+  fun sum() : int { this.x + this.y }
+}
+
+class C < A {
+  y : int;
+
+  // constructor(x : int, y : int) { super(x); this.y = y } 
+  constructor(y : int) evolves A { this.y = y; } 
+
+  fun sum2() : int { this.x + this.y }
+}
+
+fun evolveA(a : !A) : !B {
+  a evolves B(22);
+}
+
+fun evolveA2(a : !A) : !C {
+  a evolves C(22);
+}
+
+fun main() : unit {
+  let a : !A = new A(20);
+  let b : !B = a:evolveMe();
+  Std.Int.println(b:sum());
+  // let c : !C = evolveA2(a);
+  ()
+}

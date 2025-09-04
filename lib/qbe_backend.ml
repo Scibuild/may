@@ -12,56 +12,144 @@ open! Composition_infix
     be aliased, but this is safe by immutability.
   
     Objects: 
-    x -> | vtable : 64 | -> | method 1 |
-         |-------------|    | method 2 |
-         | the fields  |    | ...      |
-         | ...         |
+    x -> | vtable : 64 | -> | interfaces | -> | interface 1 id  |
+         |-------------|    | method 1   |    | interface 1 ptr | -> | method 1 |
+         | the fields  |    | ...        |    | ...             |    | method 2 |
+         | ...         |    | ...        |                           | ...      |
 
     This layout is *not* stable! It will likely be changed later. Mark code locations
     that rely on layout with (* LAYOUT *)
 
 *)
 
-let sym_of_global global_env global =
-  let path = Check.Global_env.find_name global_env ~id:global in
-  "g_"
-  ^ Ast.Path.to_string ~sep:"_" path
+module Layout = struct
+  let array_pointer_offset = 0
+  let array_offset_offset = 8
+  let array_length_offset = 12
+  let array_slice_size = 16
+  let start_of_fields_offset = 8
+  let start_of_methods_offset = 8
+  let method_width = 8
+  let interface_table_entry_size = 16
+  let interface_table_entry_id_offset = 0
+  let interface_table_entry_ptr_offset = 8
+  let class_vtable_offset = 0
+  let interface_table_offset_in_vtable = 0
+end
+
+module Interface_layout : sig
+  type t
+
+  val of_interfaces : Type.Interface.t Env.Id.Interface.Table.t -> t
+
+  val get_method_offset_exn
+    :  t
+    -> interface_id:Env.Id.Interface.t
+    -> method_name:Ast.Ident.t
+    -> Env.Id.Interface.t * int
+
+  val get_method_tables_exn
+    :  t
+    -> interface_id:Env.Id.Interface.t
+    -> Ast.Ident.t list Env.Id.Interface.Map.t
+end = struct
+  module Row = struct
+    type t =
+      { by_method_name : (Env.Id.Interface.t * int) Ast.Ident.Map.t
+      ; method_tables : Ast.Ident.t list Env.Id.Interface.Map.t
+      }
+    [@@deriving fields]
+  end
+
+  type t = Row.t Env.Id.Interface.Table.t
+
+  let of_interfaces (interfaces : Type.Interface.t Type.Interface_id.Table.t) =
+    let t = Env.Id.Interface.Table.create () in
+    let rec aux id : Row.t =
+      Hashtbl.find_or_add t id ~default:(fun () ->
+        let interface_sig = Hashtbl.find_exn interfaces id in
+        let super_rows =
+          List.map interface_sig.implements ~f:(fun super_id -> aux super_id)
+        in
+        let only_my_method_table = Map.keys interface_sig.method_signatures in
+        let my_by_name =
+          only_my_method_table
+          |> List.mapi ~f:(fun i method_name -> method_name, (id, i))
+          |> Ast.Ident.Map.of_alist_exn
+        in
+        let my_method_tables =
+          Env.Id.Interface.Map.of_alist_exn [ id, only_my_method_table ]
+        in
+        let list_merge ~init ~selector =
+          List.fold super_rows ~init ~f:(fun acc super_row ->
+            Map.merge_skewed
+              (selector super_row)
+              acc
+              ~combine:(fun ~key:_ _ existing_row -> existing_row))
+        in
+        Row.
+          { by_method_name = list_merge ~init:my_by_name ~selector:Row.by_method_name
+          ; method_tables = list_merge ~init:my_method_tables ~selector:Row.method_tables
+          })
+    in
+    Hashtbl.iter_keys interfaces ~f:(fun id -> ignore (aux id));
+    t
+  ;;
+
+  let get_method_offset_exn (t : t) ~interface_id ~method_name =
+    Map.find_exn (Hashtbl.find_exn t interface_id |> Row.by_method_name) method_name
+  ;;
+
+  let get_method_tables_exn (t : t) ~interface_id =
+    Hashtbl.find_exn t interface_id |> Row.method_tables
+  ;;
+end
+
+let escaped_string_of_path path =
+  path
+  |> Ast.Path.to_string ~sep:"_"
+  |> String.map ~f:(fun c -> if Char.is_alphanum c then c else '_')
+;;
+
+let sym_of_global env global =
+  let path = Env.find_global_name env ~id:global in
+  "g_" ^ escaped_string_of_path path ^ "_" ^ Resolved_ident.Global.Id.to_string global
+;;
+
+let blah_of_class env ~class_id =
+  let path = Env.find_class_name env ~id:class_id in
+  escaped_string_of_path path
+;;
+
+let constructor_of_class env ~class_id = "constructor_" ^ blah_of_class env ~class_id
+let evolver_of_class env ~class_id = "evolver_" ^ blah_of_class env ~class_id
+let vtable_of_class env ~class_id = "vtable_" ^ blah_of_class env ~class_id
+
+let interface_table_of_class env ~class_id =
+  "interface_table_" ^ blah_of_class env ~class_id
+;;
+
+let implementation_table_of_class env ~class_id ~interface_id =
+  let interface_path = Env.find_interface_name env ~id:interface_id in
+  "implementation_table_"
+  ^ blah_of_class env ~class_id
   ^ "_"
-  ^ Resolved_ident.Global.Id.to_string global
+  ^ escaped_string_of_path interface_path
 ;;
 
-let constructor_of_class class_env ~class_id =
-  let path = Check.Class_env.find_name class_env ~id:class_id in
-  "constructor_" ^ Ast.Path.to_string ~sep:"_" path
+let function_of_class_method env ~class_id ~method_ =
+  "method_" ^ blah_of_class env ~class_id ^ "_" ^ Ast.Ident.to_string method_
 ;;
 
-let evolver_of_class class_env ~class_id =
-  let path = Check.Class_env.find_name class_env ~id:class_id in
-  "evolver_" ^ Ast.Path.to_string ~sep:"_" path
-;;
-
-let vtable_of_class class_env ~class_id =
-  let path = Check.Class_env.find_name class_env ~id:class_id in
-  "vtable_" ^ Ast.Path.to_string ~sep:"_" path
-;;
-
-let function_of_class_method class_env ~class_id ~method_ =
-  let path = Check.Class_env.find_name class_env ~id:class_id in
-  "method_" ^ Ast.Path.to_string ~sep:"_" path ^ "_" ^ Ast.Ident.to_string method_
-;;
-
-module Function_compiler = struct
-  type t =
-    { mutable temp_count : int
-    ; class_layout : Class_layout.t
-    ; qbe_function : Qbe.Function.t
-    ; mutable current_block : Qbe.Block.t
-    ; global_env : Check.Global_env.t
-    ; class_env : Check.Class_env.t
-    ; qbe_data_decls : Qbe.Data.t Vec.t
-    }
-
-  let qbe_function t = t.qbe_function
+module Conversions = struct
+  let ty_to_basic_qbe ty =
+    match (ty : Type.t) with
+    | Bottom | Unit (* -> failwith "unreachable" *) | Bool -> `W
+    | Numeric Int -> `L
+    | Numeric Float -> `D
+    | Numeric Char -> `W
+    | Array _ | Fun _ | Top_object | Option _ | Object _ -> `L
+  ;;
 
   let ty_to_abi_qbe ty =
     match (ty : Type.t) with
@@ -74,9 +162,98 @@ module Function_compiler = struct
     | Bool | Numeric Char -> `UB
     | Bottom | Unit -> `W
     | Numeric Float -> `D
-    | Numeric Int | Array _ | Fun _ | Top_object | Option _ | Object _ | Owned_object _ ->
-      `L
+    | Numeric Int | Array _ | Fun _ | Top_object | Option _ | Object _ -> `L
   ;;
+
+  let size_of_ty ty =
+    match ty_to_abi_qbe ty with
+    | `UB -> 1
+    | `W -> 4
+    | `D -> 8
+    | `L -> 8
+  ;;
+end
+
+module Statics_compiler = struct
+  type t =
+    { mutable temp_count : int
+    ; globals : Qbe.Data.t Vec.t
+    ; folded_globals : Qbe.Const.t Resolved_ident.Global.Id.Table.t
+    }
+
+  let create () =
+    { temp_count = 0
+    ; globals = Vec.create ()
+    ; folded_globals = Resolved_ident.Global.Id.Table.create ()
+    }
+  ;;
+
+  let fresh_name t =
+    t.temp_count <- t.temp_count + 1;
+    ".static." ^ Int.to_string t.temp_count
+  ;;
+
+  let add_array t ~name ~raw ~length =
+    let data =
+      Qbe.Data.create ~name [ I (`L, `Symbol raw); I (`W, `Int 0); I (`W, `Int length) ]
+    in
+    Vec.push_back t.globals data
+  ;;
+
+  let rec compile_const (t : t) ~name ~(expr : Tast.Expr.t) : Qbe.Const.t =
+    let name = Option.value_or_thunk name ~default:(fun () -> fresh_name t) in
+    match expr.kind with
+    | Null | Unit -> `Int 0
+    | Lit_int v -> `Int (Int.of_string v)
+    | Lit_bool b -> `Int (Bool.to_int b)
+    | Lit_char c -> `Int (Char.to_int c)
+    | Lit_string s ->
+      let raw_string_name = fresh_name t in
+      let raw_string_data =
+        Qbe.Data.create ~name:raw_string_name [ I (`B, `String (String.escaped s)) ]
+      in
+      add_array t ~name ~raw:raw_string_name ~length:(String.length s);
+      Vec.push_back t.globals raw_string_data;
+      `Symbol name
+    | Lit_array elts ->
+      let raw_list_name = fresh_name t in
+      let raw_list_data =
+        elts
+        |> List.map ~f:(fun elt ->
+          Qbe.Data.Item.I
+            ( Conversions.ty_to_basic_qbe elt.ty
+            , (compile_const t ~name:None ~expr:elt :> Qbe.Data.Item.Elt.t) ))
+        |> Qbe.Data.create ~name
+      in
+      add_array t ~name ~raw:raw_list_name ~length:(List.length elts);
+      Vec.push_back t.globals raw_list_data;
+      `Symbol name
+    | _ -> failwith "unimplemented"
+  ;;
+
+  let save_global (t : t) ~global_id ~const =
+    Hashtbl.set t.folded_globals ~key:global_id ~data:const
+  ;;
+
+  let resolve_global (t : t) ~env ~global_id =
+    global_id
+    |> Hashtbl.find t.folded_globals
+    |> Option.value_or_thunk ~default:(fun () -> `Symbol (sym_of_global env global_id))
+  ;;
+end
+
+module Function_compiler = struct
+  type t =
+    { mutable temp_count : int
+    ; class_layout : Class_layout.t
+    ; interface_layout : Interface_layout.t
+    ; qbe_function : Qbe.Function.t
+    ; mutable current_block : Qbe.Block.t
+    ; env : Env.t
+    ; statics_compiler : Statics_compiler.t
+    }
+
+  let qbe_function t = t.qbe_function
 
   let load_of_ty ty =
     "load"
@@ -85,12 +262,11 @@ module Function_compiler = struct
     | Bool | Numeric Char -> "ub"
     | Bottom | Unit -> "uw"
     | Numeric Float -> "d"
-    | Numeric Int | Array _ | Fun _ | Top_object | Option _ | Object _ | Owned_object _ ->
-      "l"
+    | Numeric Int | Array _ | Fun _ | Top_object | Option _ | Object _ -> "l"
   ;;
 
   let store_of_ty ty =
-    let ty_str = Qbe.Type.to_string (ty_to_abi_qbe ty) in
+    let ty_str = Qbe.Type.to_string (Conversions.ty_to_abi_qbe ty) in
     "store" ^ String.suffix ty_str 1
   ;;
 
@@ -118,25 +294,17 @@ module Function_compiler = struct
       |}]
   ;;
 
-  let size_of_ty ty =
-    match ty_to_abi_qbe ty with
-    | `UB -> 1
-    | `W -> 4
-    | `D -> 8
-    | `L -> 8
-  ;;
-
   let reg_of_local local = Resolved_ident.Local.to_mangled_string local
-  let sym_of_global t global = sym_of_global t.global_env global
 
   let create
-        ~global_env
-        ~class_env
+        ~env
         ~class_layout
+        ~interface_layout
         ~name
         ?ret_type
         ~args
         ~linkage
+        ~statics_compiler
         ?(with_this = false)
         ()
     =
@@ -150,25 +318,24 @@ module Function_compiler = struct
         hard, but do need to think. 
         
         Well we aren't doing that anymore. *)
-        reg_of_local local, ty_to_abi_qbe ty)
+        reg_of_local local, Conversions.ty_to_abi_qbe ty)
     in
     let qbe_function =
       Qbe.Function.create
         ~name
-        ?return_type:(Option.map ret_type ~f:ty_to_abi_qbe)
+        ?return_type:(Option.map ret_type ~f:Conversions.ty_to_abi_qbe)
         ~parameters
         ~linkage
         ()
     in
     let current_block = Qbe.Function.add_block qbe_function ~name:"start" in
-    let qbe_data_decls = Vec.create () in
     { temp_count = -1
     ; qbe_function
     ; current_block
-    ; global_env
-    ; class_env
+    ; env
     ; class_layout
-    ; qbe_data_decls
+    ; statics_compiler
+    ; interface_layout
     }
   ;;
 
@@ -239,16 +406,6 @@ module Function_compiler = struct
     `Local temp
   ;;
 
-  let ty_to_basic_qbe ty =
-    match (ty : Type.t) with
-    | Bottom | Unit -> failwith "unreachable"
-    | Bool -> `W
-    | Numeric Int -> `L
-    | Numeric Float -> `D
-    | Numeric Char -> `W
-    | Array _ | Fun _ | Top_object | Option _ | Object _ | Owned_object _ -> `L
-  ;;
-
   let add_load_offset t ~ty ~load ~ptr ~off =
     let ptr_off = addi_temp t ~ty:`L ~op:"add" ~args:[ ptr; off ] () in
     addi_temp t ~ty ~op:load ~args:[ ptr_off ] ()
@@ -285,7 +442,14 @@ module Function_compiler = struct
 
   let check_index_in_array_bounds t ~slice ~index ~range =
     (* LAYOUT *)
-    let len = add_load_offset t ~ty:`L ~load:"loaduw" ~ptr:slice ~off:(`Int (8 + 4)) in
+    let len =
+      add_load_offset
+        t
+        ~ty:`L
+        ~load:"loaduw"
+        ~ptr:slice
+        ~off:(`Int Layout.array_length_offset)
+    in
     let index_is_positive = addi_temp t ~ty:`W ~op:"csgel" ~args:[ index; `Int 0 ] () in
     let index_is_in_range = addi_temp t ~ty:`W ~op:"csltl" ~args:[ index; len ] () in
     let index_is_good =
@@ -302,8 +466,22 @@ module Function_compiler = struct
   let compile_array_indexing t ~slice ~index ~element_size ~(range : Range.t) =
     (* LAYOUT *)
     check_index_in_array_bounds t ~slice ~index ~range;
-    let array_ptr = addi_temp t ~ty:`L ~op:"loadl" ~args:[ slice ] () in
-    let offset = add_load_offset t ~ty:`L ~load:"loaduw" ~ptr:slice ~off:(`Int 8) in
+    let array_ptr =
+      add_load_offset
+        t
+        ~ty:`L
+        ~load:"loadl"
+        ~ptr:slice
+        ~off:(`Int Layout.array_pointer_offset)
+    in
+    let offset =
+      add_load_offset
+        t
+        ~ty:`L
+        ~load:"loaduw"
+        ~ptr:slice
+        ~off:(`Int Layout.array_offset_offset)
+    in
     let underlying_index = addi_temp t ~ty:`L ~op:"add" ~args:[ index; offset ] () in
     let underlying_offset =
       addi_temp t ~ty:`L ~op:"mul" ~args:[ underlying_index; `Int element_size ] ()
@@ -311,47 +489,56 @@ module Function_compiler = struct
     addi_temp t ~ty:`L ~op:"add" ~args:[ array_ptr; underlying_offset ] ()
   ;;
 
+  let compile_allocate_new_array t ~ptr ~offset ~length =
+    (* LAYOUT *)
+    let slice = add_allocate t ~size:(`Int Layout.array_slice_size) in
+    add_store_offset
+      t
+      ~store:"storel"
+      ~ptr:slice
+      ~off:(`Int Layout.array_pointer_offset)
+      ~v:ptr;
+    add_store_offset
+      t
+      ~store:"storew"
+      ~ptr:slice
+      ~off:(`Int Layout.array_offset_offset)
+      ~v:offset;
+    add_store_offset
+      t
+      ~store:"storew"
+      ~ptr:slice
+      ~off:(`Int Layout.array_length_offset)
+      ~v:length;
+    slice
+  ;;
+
   let add_ext_to_l t ~ty ~src =
     let suffix =
       match (ty : Type.t) with
       | Bool | Numeric Char -> Some "ub"
       | Bottom | Unit -> Some "uw"
-      | Numeric Float
-      | Numeric Int
-      | Array _ | Fun _ | Top_object | Option _ | Object _ | Owned_object _ -> None
+      | Numeric Float | Numeric Int | Array _ | Fun _ | Top_object | Option _ | Object _
+        -> None
     in
     match suffix with
     | None -> src
-    | Some s -> addi_temp t ~ty:(ty_to_basic_qbe ty) ~op:("ext" ^ s) ~args:[ src ] ()
+    | Some s ->
+      addi_temp t ~ty:(Conversions.ty_to_basic_qbe ty) ~op:("ext" ^ s) ~args:[ src ] ()
   ;;
 
   let rec compile (t : t) ~(expr : Tast.Expr.t) : Qbe.Value.t =
     match expr.kind with
     | Tast.Expr.Null | Tast.Expr.Unit -> `Int 0
     | Tast.Expr.Lit_int v -> `Int (Int.of_string v)
-    | Tast.Expr.Lit_string s ->
-      let raw_string_id = fresh_temp t in
-      let string_id = fresh_temp t in
-      let raw_string_name = [%string "raw_string_%{raw_string_id}"] in
-      let string_name = [%string "string_%{string_id}"] in
-      let raw_string_data =
-        Qbe.Data.create ~name:raw_string_name [ I (`B, `String (String.escaped s)) ]
-      in
-      let string_data =
-        Qbe.Data.create
-          ~name:string_name
-          [ I (`L, `Symbol raw_string_name)
-          ; I (`W, `Int 0)
-          ; I (`W, `Int (String.length s))
-          ]
-      in
-      Vec.push_back t.qbe_data_decls raw_string_data;
-      Vec.push_back t.qbe_data_decls string_data;
-      `Symbol string_name
+    | Tast.Expr.Lit_string _ ->
+      (Statics_compiler.compile_const t.statics_compiler ~name:None ~expr :> Qbe.Value.t)
     | Tast.Expr.Lit_bool b -> `Int (Bool.to_int b)
     | Tast.Expr.Lit_char c -> `Int (Char.to_int c)
     | Tast.Expr.Local local -> `Local (reg_of_local local)
-    | Tast.Expr.Global global -> `Symbol (sym_of_global t global)
+    | Tast.Expr.Global global_id ->
+      (Statics_compiler.resolve_global t.statics_compiler ~env:t.env ~global_id
+        :> Qbe.Value.t)
     | Tast.Expr.This -> this
     | Tast.Expr.Super -> failwith "unimplemented"
     | Tast.Expr.Bin_op { lhs; rhs; op = (And | Or) as op } ->
@@ -376,12 +563,13 @@ module Function_compiler = struct
       enter_block t check_rhs_block;
       let rhs_result = compile t ~expr:rhs in
       add_copy t ~ty:`W ~dst:result ~src:rhs_result;
+      add_jmp t ~block:result_block;
       enter_block t result_block;
       `Local result
     | Tast.Expr.Bin_op { lhs; rhs; op } ->
       let lhs_value = compile t ~expr:lhs in
       let rhs_value = compile t ~expr:rhs in
-      let op_ty = ty_to_basic_qbe (Tast.Expr.ty lhs) in
+      let op_ty = Conversions.ty_to_basic_qbe (Tast.Expr.ty lhs) in
       let generate_arith op =
         addi_temp t ~ty:op_ty ~op ~args:[ lhs_value; rhs_value ] ()
       in
@@ -413,7 +601,7 @@ module Function_compiler = struct
        | And | Or -> failwith "unreachable")
     | Tast.Expr.Un_op { rhs; op = Neg } ->
       let rhs_value = compile t ~expr:rhs in
-      let op_ty = ty_to_basic_qbe (Tast.Expr.ty rhs) in
+      let op_ty = Conversions.ty_to_basic_qbe (Tast.Expr.ty rhs) in
       addi_temp t ~ty:op_ty ~op:"neg" ~args:[ rhs_value ] ()
     | Tast.Expr.Un_op { rhs; op = Not } ->
       let rhs_value = compile t ~expr:rhs in
@@ -424,7 +612,7 @@ module Function_compiler = struct
       let if_else_block = add_block t ~name:"if_else" in
       add_jnz t ~v:cond_value ~ifnz:if_then_block ~ifz:if_else_block;
       let result = fresh_temp t in
-      let result_ty = ty_to_basic_qbe (Tast.Expr.ty expr) in
+      let result_ty = Conversions.ty_to_basic_qbe (Tast.Expr.ty expr) in
       enter_block t if_then_block;
       let if_then_value = compile t ~expr:if_then in
       add_copy t ~ty:result_ty ~dst:result ~src:if_then_value;
@@ -453,7 +641,7 @@ module Function_compiler = struct
       List.fold exprs ~init:(`Int 0) ~f:(fun _ expr -> compile t ~expr)
     | Tast.Expr.Let { local; expr } ->
       let expr_value = compile t ~expr in
-      let ty = ty_to_basic_qbe (Tast.Expr.ty expr) in
+      let ty = Conversions.ty_to_basic_qbe (Tast.Expr.ty expr) in
       add_copy t ~ty ~dst:(reg_of_local local) ~src:expr_value;
       `Int 0
     | Tast.Expr.Assign { lhs; rhs } ->
@@ -470,20 +658,19 @@ module Function_compiler = struct
     | Tast.Expr.Function_call { expr = f; arguments } ->
       let f_value = compile t ~expr:f in
       let argument_values = compile_function_arguments t arguments in
-      let ty = expr |> Tast.Expr.ty |> ty_to_abi_qbe in
+      let ty = expr |> Tast.Expr.ty |> Conversions.ty_to_abi_qbe in
       add_call_temp t ~fn:f_value ~ty ~args:argument_values
-    | Tast.Expr.Field_subscript { expr = sub_expr; field } ->
+    | Tast.Expr.Field_subscript { expr = sub_expr; field; class_id } ->
       (* LAYOUT *)
       let obj_value = compile t ~expr:sub_expr in
-      let class_id = Type.class_id_exn (Tast.Expr.ty sub_expr) in
       let offset = Class_layout.field_offset t.class_layout ~class_id ~field in
       let ty = Tast.Expr.ty expr in
       add_load_offset
         t
-        ~ty:(ty_to_basic_qbe ty)
+        ~ty:(Conversions.ty_to_basic_qbe ty)
         ~load:(load_of_ty ty)
         ~ptr:obj_value
-        ~off:(`Int (8 (* vtable *) + offset))
+        ~off:(`Int (Layout.start_of_fields_offset + offset))
     | Tast.Expr.Array_subscript { expr = sub_expr; index } ->
       (* LAYOUT *)
       let array_ptr_ref = compile t ~expr:sub_expr in
@@ -496,10 +683,15 @@ module Function_compiler = struct
           t
           ~slice:array_ptr_ref
           ~index:index_value
-          ~element_size:(size_of_ty ty)
+          ~element_size:(Conversions.size_of_ty ty)
           ~range:(Tast.Expr.range index)
       in
-      addi_temp t ~ty:(ty_to_basic_qbe ty) ~op:(load_of_ty ty) ~args:[ elem_ptr ] ()
+      addi_temp
+        t
+        ~ty:(Conversions.ty_to_basic_qbe ty)
+        ~op:(load_of_ty ty)
+        ~args:[ elem_ptr ]
+        ()
     | Tast.Expr.Array_subrange { expr = sub_expr; from; to_ } ->
       (* LAYOUT *)
       let array_ptr_ref = compile t ~expr:sub_expr in
@@ -522,24 +714,30 @@ module Function_compiler = struct
         ~rhs:to_value
         ~range:(Tast.Expr.range to_)
         ~panic_name:"panic_subrange_invalid";
-      let result = add_allocate t ~size:(`Int 16) in
       let array_ptr =
-        add_load_offset t ~ty:`L ~load:"loadl" ~ptr:array_ptr_ref ~off:(`Int 0)
+        add_load_offset
+          t
+          ~ty:`L
+          ~load:"loadl"
+          ~ptr:array_ptr_ref
+          ~off:(`Int Layout.array_pointer_offset)
       in
       let offset =
-        add_load_offset t ~ty:`W ~load:"loadw" ~ptr:array_ptr_ref ~off:(`Int 8)
+        add_load_offset
+          t
+          ~ty:`W
+          ~load:"loadw"
+          ~ptr:array_ptr_ref
+          ~off:(`Int Layout.array_offset_offset)
       in
       let new_offset = addi_temp t ~ty:`W ~op:"add" ~args:[ from_value; offset ] () in
       let new_length_minus_one =
         addi_temp t ~ty:`W ~op:"sub" ~args:[ to_value; from_value ] ()
       in
       let new_length =
-        addi_temp t ~ty:`W ~op:"add" ~args:[ new_length_minus_one; `Int 0 ] ()
+        addi_temp t ~ty:`W ~op:"add" ~args:[ new_length_minus_one; `Int 1 ] ()
       in
-      add_store_offset t ~store:"storel" ~ptr:result ~off:(`Int 0) ~v:array_ptr;
-      add_store_offset t ~store:"storew" ~ptr:result ~off:(`Int 8) ~v:new_offset;
-      add_store_offset t ~store:"storew" ~ptr:result ~off:(`Int 12) ~v:new_length;
-      result
+      compile_allocate_new_array t ~ptr:array_ptr ~offset:new_offset ~length:new_length
     | Tast.Expr.Lit_array elements ->
       let len = List.length elements in
       let elem_ty =
@@ -547,13 +745,28 @@ module Function_compiler = struct
         | Array { elt; mut = _ } -> elt
         | _ -> failwith "unreachable"
       in
-      let size = size_of_ty elem_ty in
+      let size = Conversions.size_of_ty elem_ty in
       (* LAYOUT *)
-      let slice = add_allocate t ~size:(`Int 16) in
+      let slice = add_allocate t ~size:(`Int Layout.array_slice_size) in
       let array = add_allocate t ~size:(`Int (size * len)) in
-      add_store_offset t ~store:"storel" ~ptr:slice ~off:(`Int 0) ~v:array;
-      add_store_offset t ~store:"storew" ~ptr:slice ~off:(`Int 8) ~v:(`Int 0);
-      add_store_offset t ~store:"storew" ~ptr:slice ~off:(`Int 12) ~v:(`Int len);
+      add_store_offset
+        t
+        ~store:"storel"
+        ~ptr:slice
+        ~off:(`Int Layout.array_pointer_offset)
+        ~v:array;
+      add_store_offset
+        t
+        ~store:"storew"
+        ~ptr:slice
+        ~off:(`Int Layout.array_offset_offset)
+        ~v:(`Int 0);
+      add_store_offset
+        t
+        ~store:"storew"
+        ~ptr:slice
+        ~off:(`Int Layout.array_length_offset)
+        ~v:(`Int len);
       List.iteri elements ~f:(fun i elt ->
         let value = compile t ~expr:elt in
         add_store_offset
@@ -563,52 +776,130 @@ module Function_compiler = struct
           ~off:(`Int (i * size))
           ~v:value);
       slice
-    | Tast.Expr.Method_call { expr; method_; arguments } ->
+    | Tast.Expr.Method_call { expr; method_; arguments; obj_kind } ->
       (* LAYOUT *)
       let obj_value = compile t ~expr in
       let argument_values = compile_function_arguments t arguments in
-      let ty = expr |> Tast.Expr.ty |> ty_to_abi_qbe in
-      let class_id = Type.class_id_exn (Tast.Expr.ty expr) in
+      let ty = expr |> Tast.Expr.ty |> Conversions.ty_to_abi_qbe in
       let vtable = addi_temp t ~ty:`L ~op:"loadl" ~args:[ obj_value ] () in
-      let vtable_offset =
-        8 * Class_layout.method_offset t.class_layout ~class_id ~method_
-      in
       let method_value =
-        add_load_offset t ~ty:`L ~load:"loadl" ~ptr:vtable ~off:(`Int vtable_offset)
+        match obj_kind with
+        | Class class_id ->
+          let vtable_offset =
+            Layout.start_of_methods_offset
+            + (Layout.method_width
+               * Class_layout.method_offset t.class_layout ~class_id ~method_)
+          in
+          add_load_offset t ~ty:`L ~load:"loadl" ~ptr:vtable ~off:(`Int vtable_offset)
+        | Interface interface_id ->
+          let precise_interface_id, method_index =
+            Interface_layout.get_method_offset_exn
+              t.interface_layout
+              ~interface_id
+              ~method_name:method_
+          in
+          let interface_table =
+            add_load_offset
+              t
+              ~ty:`L
+              ~load:"loadl"
+              ~ptr:vtable
+              ~off:(`Int Layout.interface_table_offset_in_vtable)
+          in
+          let interface_table_reg = fresh_temp t in
+          addi t ~ty:`L ~v:interface_table_reg ~op:"copy" ~args:[ interface_table ] ();
+          let interface_table = `Local interface_table_reg in
+          let loop_block = add_block t ~name:"interface_load" in
+          add_jmp t ~block:loop_block;
+          enter_block t loop_block;
+          let id_in_table =
+            add_load_offset
+              t
+              ~ty:`L
+              ~load:"loadl"
+              ~ptr:interface_table
+              ~off:(`Int Layout.interface_table_entry_id_offset)
+          in
+          let is_interface_id =
+            addi_temp
+              t
+              ~ty:`W
+              ~op:"ceql"
+              ~args:
+                [ id_in_table; `Int (Type.Interface_id.to_int_exn precise_interface_id) ]
+              ()
+          in
+          let after_loop_block = add_block t ~name:"interface_found" in
+          let increment_block = add_block t ~name:"interface_load_incr" in
+          add_jnz t ~v:is_interface_id ~ifz:increment_block ~ifnz:after_loop_block;
+          enter_block t increment_block;
+          addi
+            t
+            ~ty:`L
+            ~v:interface_table_reg
+            ~op:"add"
+            ~args:[ interface_table; `Int Layout.interface_table_entry_size ]
+            ();
+          add_jmp t ~block:loop_block;
+          enter_block t after_loop_block;
+          let implementation_table =
+            add_load_offset
+              t
+              ~ty:`L
+              ~load:"loadl"
+              ~ptr:interface_table
+              ~off:(`Int Layout.interface_table_entry_ptr_offset)
+          in
+          add_load_offset
+            t
+            ~ty:`L
+            ~load:"loadl"
+            ~ptr:implementation_table
+            ~off:(`Int (Layout.method_width * method_index))
       in
       add_call_temp t ~fn:method_value ~ty ~args:([ `L, obj_value ] @ argument_values)
     | Tast.Expr.New { class_id; arguments } ->
       let argument_values = compile_function_arguments t arguments in
       let size = Class_layout.max_fields_size t.class_layout ~class_id in
       (* LAYOUT *)
-      let object_value = add_allocate t ~size:(`Int (size + 8)) in
+      let object_value =
+        add_allocate t ~size:(`Int (size + Layout.start_of_fields_offset))
+      in
       (* Null initialise the vtable for safety vibes *)
-      add_store_offset t ~store:"storel" ~ptr:object_value ~off:(`Int 0) ~v:(`Int 0);
-      let constructor_value = `Symbol (constructor_of_class t.class_env ~class_id) in
+      add_store_offset
+        t
+        ~store:"storel"
+        ~ptr:object_value
+        ~off:(`Int Layout.class_vtable_offset)
+        ~v:(`Int 0);
+      let constructor_value = `Symbol (constructor_of_class t.env ~class_id) in
       add_call_void t ~fn:constructor_value ~args:([ `L, object_value ] @ argument_values);
       object_value
     | Tast.Expr.Update_this_vtable_after { expr; new_table } ->
       (* LAYOUT *)
       let expr_value = compile t ~expr in
-      let vtable_value = `Symbol (vtable_of_class t.class_env ~class_id:new_table) in
-      add_store_offset t ~store:"storel" ~ptr:this ~off:(`Int 0) ~v:vtable_value;
+      let vtable_value = `Symbol (vtable_of_class t.env ~class_id:new_table) in
+      add_store_offset
+        t
+        ~store:"storel"
+        ~ptr:this
+        ~off:(`Int Layout.class_vtable_offset)
+        ~v:vtable_value;
       expr_value
     | Tast.Expr.Evolves { expr; class_id; arguments } ->
       let expr_value = compile t ~expr in
       let argument_values = compile_function_arguments t arguments in
-      let evolver = `Symbol (evolver_of_class t.class_env ~class_id) in
+      let evolver = `Symbol (evolver_of_class t.env ~class_id) in
       add_call_temp t ~ty:`L ~fn:evolver ~args:([ `L, expr_value ] @ argument_values)
     | Tast.Expr.Super_call { super_id; arguments } ->
       let argument_values = compile_function_arguments t arguments in
-      let super_constructor =
-        `Symbol (constructor_of_class t.class_env ~class_id:super_id)
-      in
-      let ty = expr |> Tast.Expr.ty |> ty_to_abi_qbe in
+      let super_constructor = `Symbol (constructor_of_class t.env ~class_id:super_id) in
+      let ty = expr |> Tast.Expr.ty |> Conversions.ty_to_abi_qbe in
       add_call_temp t ~ty ~fn:super_constructor ~args:([ `L, this ] @ argument_values)
     | Tast.Expr.Super_method_call { super_id; arguments; method_ } ->
       let argument_values = compile_function_arguments t arguments in
       let super_method =
-        `Symbol (function_of_class_method t.class_env ~class_id:super_id ~method_)
+        `Symbol (function_of_class_method t.env ~class_id:super_id ~method_)
       in
       add_call_void t ~fn:super_method ~args:([ `L, this ] @ argument_values);
       `Int 0
@@ -632,12 +923,12 @@ module Function_compiler = struct
       add_jnz t ~v:value ~ifz:if_null_block ~ifnz:if_value_block;
       (* if not null we bind it to the local *)
       enter_block t if_value_block;
-      let ty = ty_to_basic_qbe (Tast.Expr.ty cond) in
+      let ty = Conversions.ty_to_basic_qbe (Tast.Expr.ty cond) in
       add_copy t ~ty ~dst:(reg_of_local var) ~src:value;
       let if_value_result = compile t ~expr:if_value in
       (* copy the value into a register and jump to the main control flow *)
       let result = fresh_temp t in
-      let result_ty = ty_to_basic_qbe (Tast.Expr.ty expr) in
+      let result_ty = Conversions.ty_to_basic_qbe (Tast.Expr.ty expr) in
       add_copy t ~ty:result_ty ~dst:result ~src:if_value_result;
       add_jmp t ~block:result_block;
       (* same for if null but without the variable binding *)
@@ -650,7 +941,7 @@ module Function_compiler = struct
     | Tast.Expr.Or_else { lhs; or_else } ->
       let value = compile t ~expr:lhs in
       let value_reg = fresh_temp t in
-      let ty = ty_to_basic_qbe (Tast.Expr.ty lhs) in
+      let ty = Conversions.ty_to_basic_qbe (Tast.Expr.ty lhs) in
       add_copy t ~dst:value_reg ~ty ~src:value;
       let or_ok_block = add_block t ~name:"or_ok" in
       let or_else_block = add_block t ~name:"or_else" in
@@ -662,26 +953,51 @@ module Function_compiler = struct
       enter_block t or_ok_block;
       `Local value_reg
     | Tast.Expr.New_array { size; init } ->
+      (* LAYOUT *)
       let size_value =
         add_ext_to_l t ~ty:(Tast.Expr.ty size) ~src:(compile t ~expr:size)
       in
+      let size_is_negative =
+        addi_temp t ~ty:`W ~op:"csltl" ~args:[ size_value; `Int 0 ] ()
+      in
+      let negative_size_block = add_block t ~name:"negative_array_size" in
+      let non_negative_size_block = add_block t ~name:"non_negative_array_size" in
+      add_jnz t ~v:size_is_negative ~ifnz:negative_size_block ~ifz:non_negative_size_block;
+      enter_block t negative_size_block;
+      add_panic
+        t
+        ~name:"panic_cannot_allocate_negative_array_size"
+        ~range:(Tast.Expr.range size);
+      add_hlt t;
+      enter_block t non_negative_size_block;
+      let zero_size_block = add_block t ~name:"zero_array_size" in
+      let positive_size_block = add_block t ~name:"positive_array_size" in
+      add_jnz t ~v:size_value ~ifnz:positive_size_block ~ifz:zero_size_block;
+      let init_exit_block = add_block t ~name:"init_loop_exit" in
+      let return_slice = fresh_temp t in
+      enter_block t zero_size_block;
+      let sliceZero =
+        compile_allocate_new_array t ~ptr:(`Int 0) ~offset:(`Int 0) ~length:(`Int 0)
+      in
+      add_copy t ~ty:`L ~dst:return_slice ~src:sliceZero;
+      add_jmp t ~block:init_exit_block;
+      enter_block t positive_size_block;
       let size_value_reg = fresh_temp t in
       add_copy t ~dst:size_value_reg ~src:size_value ~ty:`L;
-      let slice = add_allocate t ~size:(`Int 16) in
       let elt_ty =
         match Tast.Expr.ty expr with
         | Array { mut = _; elt = ty } -> ty
         | _ -> failwith "unreachable"
       in
-      let elt_size = size_of_ty elt_ty in
+      let elt_size = Conversions.size_of_ty elt_ty in
       let array_buf_size =
         addi_temp t ~ty:`L ~op:"mul" ~args:[ size_value; `Int elt_size ] ()
       in
       let array_buf_reg = fresh_temp t in
       let array_buf = add_allocate ~temp:array_buf_reg t ~size:array_buf_size in
-      add_store_offset t ~store:"storel" ~ptr:slice ~off:(`Int 0) ~v:array_buf;
-      add_store_offset t ~store:"storew" ~ptr:slice ~off:(`Int 8) ~v:(`Int 0);
-      add_store_offset t ~store:"storew" ~ptr:slice ~off:(`Int 12) ~v:size_value;
+      let slice =
+        compile_allocate_new_array t ~ptr:array_buf ~offset:(`Int 0) ~length:size_value
+      in
       let loop_start_block = add_block t ~name:"array_init_loop_begin" in
       let loop_exit_block = add_block t ~name:"array_init_loop_exit" in
       let init_value = compile t ~expr:init in
@@ -703,7 +1019,10 @@ module Function_compiler = struct
       addi t ~ty:`L ~v:size_value_reg ~op:"sub" ~args:[ `Local size_value_reg; `Int 1 ] ();
       add_jnz t ~v:(`Local size_value_reg) ~ifz:loop_exit_block ~ifnz:loop_start_block;
       enter_block t loop_exit_block;
-      slice
+      add_copy t ~ty:`L ~dst:return_slice ~src:slice;
+      add_jmp t ~block:init_exit_block;
+      enter_block t init_exit_block;
+      `Local return_slice
     | Tast.Expr.Exchange { lhs; rhs } ->
       let load_lhs, store_lhs = compile_load_store_pair t ~lhs in
       let load_rhs, store_rhs = compile_load_store_pair t ~lhs:rhs in
@@ -712,6 +1031,14 @@ module Function_compiler = struct
       store_rhs lhs_value;
       store_lhs rhs_value;
       `Int 0
+    | Tast.Expr.Array_length { expr } ->
+      let value = compile t ~expr in
+      add_load_offset
+        t
+        ~ty:`L
+        ~load:"loadw"
+        ~ptr:value
+        ~off:(`Int Layout.array_length_offset)
 
   and compile_assignment_to t ~lhs ~rvalue =
     let _, store = compile_load_store_pair t ~lhs in
@@ -720,7 +1047,7 @@ module Function_compiler = struct
   and compile_load_store_pair t ~(lhs : Tast.Expr.t) =
     match Tast.Expr.kind lhs with
     | Local local ->
-      let ty = ty_to_basic_qbe (Tast.Expr.ty lhs) in
+      let ty = Conversions.ty_to_basic_qbe (Tast.Expr.ty lhs) in
       ( (fun () -> addi_temp t ~ty ~op:"copy" ~args:[ `Local (reg_of_local local) ] ())
       , fun rvalue -> add_copy t ~ty ~dst:(reg_of_local local) ~src:rvalue )
     | Tast.Expr.Array_subscript { expr = sub_expr; index } ->
@@ -732,28 +1059,27 @@ module Function_compiler = struct
           t
           ~slice:array_ptr_ref
           ~index:index_value
-          ~element_size:(size_of_ty ty)
+          ~element_size:(Conversions.size_of_ty ty)
           ~range:(Tast.Expr.range index)
       in
       ( (fun () ->
           add_load_offset
             t
             ~load:(load_of_ty ty)
-            ~ty:(ty_to_basic_qbe ty)
+            ~ty:(Conversions.ty_to_basic_qbe ty)
             ~ptr:elem_ptr
             ~off:(`Int 0))
       , fun rvalue ->
           add_store_offset t ~store:(store_of_ty ty) ~ptr:elem_ptr ~off:(`Int 0) ~v:rvalue
       )
-    | Tast.Expr.Field_subscript { expr = sub_expr; field } ->
+    | Tast.Expr.Field_subscript { expr = sub_expr; field; class_id } ->
       let obj_value = compile t ~expr:sub_expr in
-      let class_id = Type.class_id_exn (Tast.Expr.ty sub_expr) in
       let offset = Class_layout.field_offset t.class_layout ~class_id ~field in
-      let ty = Tast.Expr.ty sub_expr in
+      let ty = Tast.Expr.ty lhs in
       ( (fun () ->
           add_load_offset
             t
-            ~ty:(ty_to_basic_qbe ty)
+            ~ty:(Conversions.ty_to_basic_qbe ty)
             ~load:(load_of_ty ty)
             ~ptr:obj_value
             ~off:(`Int (8 (* vtable *) + offset)))
@@ -794,11 +1120,12 @@ module Function_compiler = struct
     | Tast.Expr.De_null _
     | Tast.Expr.New_array _
     | Tast.Expr.Exchange _
+    | Tast.Expr.Array_length _
     | Tast.Expr.Array_subrange _ -> failwith "unreachable"
 
   and compile_function_arguments t arguments =
     List.map arguments ~f:(fun expr ->
-      let abi_ty = expr |> Tast.Expr.ty |> ty_to_abi_qbe in
+      let abi_ty = expr |> Tast.Expr.ty |> Conversions.ty_to_abi_qbe in
       let value = compile t ~expr in
       abi_ty, value)
   ;;
@@ -807,18 +1134,17 @@ end
 module Compilation_unit = struct
   type t =
     { globals : Qbe.Decl.t Vec.t
-    ; global_env : (Check.Global_env.t[@sexp.opaque])
-    ; class_env :
-        (Check.Class_env.t
-        [@sexp.opaque]
-        (* ; constructors : Qbe.Function.t Type.Class_id.Table.t
-    ; evolvers : Qbe.Function.t Type.Class_id.Table.t *))
-    ; methods : (*Qbe.Function.t list * Qbe.Data.t * *) string array Type.Class_id.Table.t
+    ; env : (Env.t[@sexp.opaque])
+    ; methods : string array Type.Class_id.Table.t
     ; class_layout : (Class_layout.t[@sexp.opaque])
+    ; interface_layout : (Interface_layout.t[@sexp.opaque])
+    ; statics_compiler : (Statics_compiler.t[@sexp.opaque])
+      (* ; interfaces : Type.Interface.t Type.Interface_id.Table.t *)
     }
 
   let to_bytes t =
     let b = Bigbuffer.create 4096 in
+    Vec.iter t.statics_compiler.globals ~f:(Fn.flip Qbe.Data.add_to_buffer b);
     Vec.iter t.globals ~f:(Fn.flip Qbe.Decl.add_to_buffer b);
     (* Hashtbl.iter_keys t.constructors ~f:(fun class_id ->
       Hashtbl.find t.constructors class_id
@@ -833,23 +1159,28 @@ module Compilation_unit = struct
     Bigbuffer.contents_bytes b
   ;;
 
-  let compile_constant _t _const = failwith "unimplemented"
+  let compile_constant t Tast.Decl.Const.{ id; expr; range = _ } =
+    let name = sym_of_global t.env id in
+    let const =
+      Statics_compiler.compile_const t.statics_compiler ~name:(Some name) ~expr
+    in
+    Statics_compiler.save_global t.statics_compiler ~global_id:id ~const
+  ;;
 
   let add_function_compiler t ~function_compiler =
     Vec.push_back
       t.globals
-      (Qbe.Decl.Function (Function_compiler.qbe_function function_compiler));
-    Vec.iter function_compiler.qbe_data_decls ~f:(fun qbe_data ->
-      Vec.push_back t.globals (Qbe.Decl.Data qbe_data))
+      (Qbe.Decl.Function (Function_compiler.qbe_function function_compiler))
   ;;
 
   let compile_function t Tast.Decl.Function.{ id; args; body; ret_type; range = _ } =
-    let name = sym_of_global t.global_env id in
+    let name = sym_of_global t.env id in
     let function_compiler =
       Function_compiler.create
-        ~global_env:t.global_env
-        ~class_env:t.class_env
+        ~statics_compiler:t.statics_compiler
+        ~env:t.env
         ~class_layout:t.class_layout
+        ~interface_layout:t.interface_layout
         ~name
         ~ret_type
         ~args
@@ -865,7 +1196,7 @@ module Compilation_unit = struct
         t
         Tast.Decl.Extern_function.{ id; arg_tys; ret_type; external_name; range = _ }
     =
-    let name = sym_of_global t.global_env id in
+    let name = sym_of_global t.env id in
     (* TODO: this args business is messy *)
     let args =
       List.mapi arg_tys ~f:(fun id arg_ty ->
@@ -873,14 +1204,15 @@ module Compilation_unit = struct
     in
     let extern_args =
       List.map args ~f:(fun (resolved_local, ty) ->
-        ( Function_compiler.ty_to_abi_qbe ty
+        ( Conversions.ty_to_abi_qbe ty
         , `Local (Function_compiler.reg_of_local resolved_local) ))
     in
     let function_compiler =
       Function_compiler.create
-        ~global_env:t.global_env
-        ~class_env:t.class_env
+        ~statics_compiler:t.statics_compiler
+        ~env:t.env
         ~class_layout:t.class_layout
+        ~interface_layout:t.interface_layout
         ~name
         ~ret_type
         ~args
@@ -892,7 +1224,7 @@ module Compilation_unit = struct
         function_compiler
         ~fn:(`Symbol external_name)
         ~args:extern_args
-        ~ty:(Function_compiler.ty_to_abi_qbe ret_type)
+        ~ty:(Conversions.ty_to_abi_qbe ret_type)
     in
     Function_compiler.add_ret_val function_compiler return_value;
     add_function_compiler t ~function_compiler
@@ -901,15 +1233,15 @@ module Compilation_unit = struct
   let compile_constructor
         t
         ~class_id
-        ~class_env
         Tast.Decl.Class.Constructor.{ args; body; range = _ }
     =
-    let name = constructor_of_class class_env ~class_id in
+    let name = constructor_of_class t.env ~class_id in
     let function_compiler =
       Function_compiler.create
-        ~global_env:t.global_env
-        ~class_env:t.class_env
+        ~statics_compiler:t.statics_compiler
+        ~env:t.env
         ~class_layout:t.class_layout
+        ~interface_layout:t.interface_layout
         ~name
         ~args
         ~linkage:[]
@@ -925,19 +1257,19 @@ module Compilation_unit = struct
         t
         ~class_id
         ~super_id
-        ~class_env
         Tast.Decl.Class.Constructor.{ args; body; range = _ }
     =
-    let name = evolver_of_class class_env ~class_id in
+    let name = evolver_of_class t.env ~class_id in
     let function_compiler =
       Function_compiler.create
-        ~global_env:t.global_env
-        ~class_env:t.class_env
+        ~statics_compiler:t.statics_compiler
+        ~env:t.env
         ~class_layout:t.class_layout
+        ~interface_layout:t.interface_layout
         ~name
         ~args
         ~linkage:[]
-        ~ret_type:(Option (Object class_id))
+        ~ret_type:(Option (Object (Owned, Class class_id)))
         ~with_this:true
         ()
     in
@@ -949,7 +1281,7 @@ module Compilation_unit = struct
         ~ptr:Function_compiler.this
         ~off:(`Int 0)
     in
-    let super_vtable = `Symbol (vtable_of_class class_env ~class_id:super_id) in
+    let super_vtable = `Symbol (vtable_of_class t.env ~class_id:super_id) in
     let is_equal =
       Function_compiler.addi_temp
         function_compiler
@@ -978,16 +1310,16 @@ module Compilation_unit = struct
   let compile_method
         t
         ~class_id
-        ~class_env
         Tast.Decl.Class.Method.
           { visibility = _; name; args; ret_type; body; overrides = _; range = _ }
     =
-    let name = function_of_class_method class_env ~class_id ~method_:name in
+    let name = function_of_class_method t.env ~class_id ~method_:name in
     let function_compiler =
       Function_compiler.create
-        ~global_env:t.global_env
-        ~class_env:t.class_env
+        ~statics_compiler:t.statics_compiler
+        ~env:t.env
         ~class_layout:t.class_layout
+        ~interface_layout:t.interface_layout
         ~name
         ~args
         ~ret_type
@@ -1003,34 +1335,69 @@ module Compilation_unit = struct
   let compile_class
         t
         Tast.Decl.Class.
-          { id; super_type; methods; fields = _; constructor; evolver; range = _ }
+          { id
+          ; super_type
+          ; implements
+          ; methods
+          ; fields = _
+          ; constructor
+          ; evolver
+          ; range = _
+          }
     =
-    let class_env = t.class_env in
-    Option.iter constructor ~f:(compile_constructor t ~class_id:id ~class_env);
+    Option.iter constructor ~f:(compile_constructor t ~class_id:id);
     Option.iter evolver ~f:(fun evolver ->
-      compile_evolver
-        t
-        ~class_id:id
-        ~super_id:(Option.value_exn super_type)
-        ~class_env
-        evolver);
-    List.iter methods ~f:(fun m -> compile_method t ~class_id:id ~class_env m);
+      compile_evolver t ~class_id:id ~super_id:(Option.value_exn super_type) evolver);
+    List.iter methods ~f:(fun m -> compile_method t ~class_id:id m);
     let opt_array =
       Array.create ~len:(Class_layout.methods_size t.class_layout ~class_id:id) None
     in
-    (match super_type with
-     | None -> ()
-     | Some super_id ->
-       let super_vtable =
-         Hashtbl.find_exn t.methods super_id |> Array.map ~f:Option.some
-       in
-       Array.blito ~src:super_vtable ~dst:opt_array ());
+    Option.iter super_type ~f:(fun super_id ->
+      let super_vtable =
+        Hashtbl.find_exn t.methods super_id |> Array.map ~f:Option.some
+      in
+      Array.blito ~src:super_vtable ~dst:opt_array ());
     List.iter methods ~f:(fun m ->
       Array.set
         opt_array
         (Class_layout.method_offset t.class_layout ~class_id:id ~method_:m.name)
-        (Some (function_of_class_method class_env ~class_id:id ~method_:m.name)));
+        (Some (function_of_class_method t.env ~class_id:id ~method_:m.name)));
     let vtable_entries = Array.map opt_array ~f:(fun s -> Option.value_exn s) in
+    let interface_method_tables =
+      List.fold implements ~init:Env.Id.Interface.Map.empty ~f:(fun acc interface_id ->
+        Map.merge_skewed
+          (Interface_layout.get_method_tables_exn t.interface_layout ~interface_id)
+          acc
+          ~combine:(fun ~key:_ _ existing_row -> existing_row))
+    in
+    let interface_table_entries =
+      Map.mapi interface_method_tables ~f:(fun ~key:interface_id ~data:method_list ->
+        let method_table_data_items =
+          List.map method_list ~f:(fun method_name ->
+            let method_index =
+              Class_layout.method_offset t.class_layout ~class_id:id ~method_:method_name
+            in
+            let method_symbol = Array.get vtable_entries method_index in
+            Qbe.Data.Item.I (`L, `Symbol method_symbol))
+        in
+        Qbe.Data.create
+          ~name:(implementation_table_of_class t.env ~class_id:id ~interface_id)
+          method_table_data_items)
+      |> Map.to_alist
+    in
+    let interface_table =
+      let contents =
+        interface_table_entries
+        |> List.concat_map ~f:(fun (interface_id, data) ->
+          Qbe.Data.Item.
+            [ I (`L, `Int (Env.Id.Interface.to_int_exn interface_id))
+            ; I (`L, `Symbol (Qbe.Data.name data))
+            ])
+      in
+      Qbe.Data.create
+        ~name:(interface_table_of_class t.env ~class_id:id)
+        (contents @ Qbe.Data.Item.[ Pad 16 ])
+    in
     Hashtbl.add_exn t.methods ~key:id ~data:vtable_entries;
     let vtable_data =
       let contents =
@@ -1038,26 +1405,40 @@ module Compilation_unit = struct
         |> Array.map ~f:(fun s -> Qbe.Data.Item.I (`L, `Symbol s))
         |> Array.to_list
       in
-      Qbe.Data.create ~name:(vtable_of_class class_env ~class_id:id) contents
+      let interface_table_entry =
+        match List.is_empty implements with
+        | true -> Qbe.Data.Item.I (`L, `Int 0)
+        | false -> Qbe.Data.Item.I (`L, `Symbol (Qbe.Data.name interface_table))
+      in
+      Qbe.Data.create
+        ~name:(vtable_of_class t.env ~class_id:id)
+        (interface_table_entry :: contents)
     in
-    Vec.push_back t.globals (Qbe.Decl.Data vtable_data)
+    Vec.push_back t.globals (Qbe.Decl.Data vtable_data);
+    match List.is_empty implements with
+    | true -> ()
+    | false ->
+      List.iter interface_table_entries ~f:(fun (_, data) ->
+        Vec.push_back t.globals (Qbe.Decl.Data data));
+      Vec.push_back t.globals (Qbe.Decl.Data interface_table)
   ;;
 
   let compile_program ~check ~(decls : Tast.Decls.t) =
-    let Tast.Decls.{ constants; functions; classes; extern_functions } = decls in
-    let global_env = Check.global_env check in
-    let class_env = Check.class_env check in
-    let class_layout =
-      Class_layout.of_signatures
-        ~sizeof:Function_compiler.size_of_ty
-        (Check.class_table check)
+    let Tast.Decls.{ constants; functions; classes; extern_functions; interfaces = _ } =
+      decls
     in
+    let env = Check.env check in
+    let class_layout =
+      Class_layout.of_signatures ~sizeof:Conversions.size_of_ty (Check.class_table check)
+    in
+    let interface_layout = Interface_layout.of_interfaces (Check.interface_table check) in
     let t =
       { globals = Vec.create ()
-      ; global_env
-      ; class_env
+      ; env
       ; class_layout
+      ; interface_layout
       ; methods = Type.Class_id.Table.create ()
+      ; statics_compiler = Statics_compiler.create ()
       }
     in
     List.iter constants ~f:(compile_constant t);
@@ -1065,11 +1446,10 @@ module Compilation_unit = struct
     List.iter functions ~f:(compile_function t);
     List.iter classes ~f:(compile_class t);
     let main_id =
-      Check.Global_env.find_id
-        global_env
-        ~scope:[]
-        ~qualified_name:(Ast.Path.of_string "main")
+      match Env.find_id env ~scope:[] ~qualified_name:(Ast.Path.of_string "main") with
+      | Some (Global global_id) -> Some (sym_of_global env global_id)
+      | None | Some _ -> None
     in
-    t, Option.map ~f:(sym_of_global global_env) main_id
+    t, main_id
   ;;
 end

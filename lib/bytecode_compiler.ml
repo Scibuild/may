@@ -278,25 +278,18 @@ module Function_compiler = struct
       List.iter elts ~f:(fun elt -> compile_expr t ~expr:elt);
       emit_instr t (Instruction.Const_int (List.length elts));
       emit_instr t Instruction.Array_of_stack
-    | Field_subscript { expr = sub_expr; field } ->
+    | Field_subscript { expr = sub_expr; field; class_id } ->
       compile_expr t ~expr:sub_expr;
-      let ty = Tast.Expr.ty sub_expr in
-      let class_id =
-        match ty with
-        | Type.Object class_id -> class_id
-        | _ -> failwith "unreachable"
-      in
       let offset = Class_layout.field_offset t.class_layout ~class_id ~field in
       emit_instr t (Instruction.Get_field offset)
     | Super | This -> emit_instr t Instruction.Get_this
-    | Method_call { expr; method_; arguments } ->
+    | Method_call { expr; method_; arguments; obj_kind } ->
       List.iter arguments ~f:(fun arg -> compile_expr t ~expr:arg);
       compile_expr t ~expr;
-      let ty = Tast.Expr.ty expr in
       let class_id =
-        match ty with
-        | Type.Object class_id -> class_id
-        | _ -> failwith "unreachable"
+        match obj_kind with
+        | Class class_id -> class_id
+        | Interface _ -> failwith "unimplemented"
       in
       let offset = Class_layout.method_offset t.class_layout ~class_id ~method_ in
       emit_instr t (Instruction.Lookup_method offset);
@@ -351,7 +344,8 @@ module Function_compiler = struct
       emit_instr t Instruction.Pop;
       compile_expr t ~expr:if_null;
       patch_branch_to_here t ~at:branch_after_true `Unconditional
-    | Exchange _ | Array_subrange _ | New_array _ -> failwith "unimplemented"
+    | Exchange _ | Array_subrange _ | New_array _ | Array_length _ ->
+      failwith "unimplemented"
 
   and compile_assignment_to t ~(lvalue : Tast.Expr.t) =
     match Tast.Expr.kind lvalue with
@@ -361,14 +355,8 @@ module Function_compiler = struct
       compile_expr t ~expr;
       compile_expr t ~expr:index;
       emit_instr t Instruction.Set_array
-    | Field_subscript { expr; field } ->
+    | Field_subscript { expr; field; class_id } ->
       compile_expr t ~expr;
-      let ty = Tast.Expr.ty expr in
-      let class_id =
-        match ty with
-        | Type.Object class_id -> class_id
-        | _ -> raise_s [%message "unreachable: cannot subscript type" (ty : Type.t)]
-      in
       let offset = Class_layout.field_offset t.class_layout ~class_id ~field in
       emit_instr t (Instruction.Set_field offset)
     | Lit_int _
@@ -400,6 +388,7 @@ module Function_compiler = struct
     | Array_subrange _
     | Exchange _
     | New_array _
+    | Array_length _
     | Lit_array _ -> failwith "unreachable"
   ;;
 end
@@ -407,8 +396,7 @@ end
 module Compilation_unit = struct
   type t =
     { globals : Runtime_value.t Resolved_ident.Global.Id.Table.t
-    ; global_env : (Check.Global_env.t[@sexp.opaque])
-    ; class_env : (Check.Class_env.t[@sexp.opaque])
+    ; env : (Env.t[@sexp.opaque])
     ; constructors : Function.t Type.Class_id.Table.t
     ; evolvers : Function.t Type.Class_id.Table.t
     ; methods : Function.t Array.t Type.Class_id.Table.t
@@ -540,7 +528,8 @@ module Compilation_unit = struct
     | If_option _
     | Evolves _
     | Exchange _
-    | New _ ->
+    | New _
+    | Array_length _ ->
       (* TODO-someday: implement. Probably not worth implementing here anyway
          and to do something more robust that can be shared across backends. *)
       failwith "unimplemented"
@@ -552,7 +541,7 @@ module Compilation_unit = struct
   ;;
 
   let compile_function t Tast.Decl.Function.{ id; args; ret_type = _; body; range = _ } =
-    let name = Check.Global_env.find_name t.global_env ~id |> Ast.Path.to_string in
+    let name = Env.find_global_name t.env ~id |> Ast.Path.to_string in
     let function_compiler = Function_compiler.create ~class_layout:t.class_layout ~name in
     Function_compiler.compile_arguments function_compiler args;
     Function_compiler.compile_expr function_compiler ~expr:body;
@@ -633,9 +622,19 @@ module Compilation_unit = struct
   let compile_class
         t
         Tast.Decl.Class.
-          { id; super_type; methods; fields = _; constructor; evolver; range = _ }
+          { id
+          ; super_type
+          ; implements
+          ; methods
+          ; fields = _
+          ; constructor
+          ; evolver
+          ; range = _
+          }
     =
-    let class_path = Check.Class_env.find_name t.class_env ~id in
+    if not (List.is_empty implements)
+    then raise_s [%message "interfaces not supported for bytecode compiler"];
+    let class_path = Env.find_class_name t.env ~id in
     Option.iter constructor ~f:(compile_constructor t ~class_id:id ~class_path);
     Option.iter evolver ~f:(fun evolver ->
       compile_evolver
@@ -665,18 +664,20 @@ module Compilation_unit = struct
 
   (* Returns the entry point of the program "main.main" *)
   let compile_program ~check ~(decls : Tast.Decls.t) =
-    let Tast.Decls.{ constants; functions; classes; extern_functions } = decls in
+    let Tast.Decls.{ constants; functions; classes; extern_functions; interfaces } =
+      decls
+    in
     if not (List.is_empty extern_functions)
     then raise_s [%message "external functions not supported for bytecode compiler"];
-    let global_env = Check.global_env check in
-    let class_env = Check.class_env check in
+    if not (List.is_empty interfaces)
+    then raise_s [%message "interfaces not supported for bytecode compiler"];
+    let env = Check.env check in
     let class_layout =
       Class_layout.of_signatures ~sizeof:(Fn.const 1) (Check.class_table check)
     in
     let t =
       { globals = Resolved_ident.Global.Id.Table.create ()
-      ; global_env
-      ; class_env
+      ; env
       ; class_layout
       ; methods = Type.Class_id.Table.create ()
       ; constructors = Type.Class_id.Table.create ()
@@ -687,10 +688,9 @@ module Compilation_unit = struct
     List.iter functions ~f:(compile_function t);
     List.iter classes ~f:(compile_class t);
     let main_id =
-      Check.Global_env.find_id
-        global_env
-        ~scope:[]
-        ~qualified_name:(Ast.Path.of_string "main")
+      match Env.find_id env ~scope:[] ~qualified_name:(Ast.Path.of_string "main") with
+      | None | Some (Class _ | Interface _) -> None
+      | Some (Global id) -> Some id
     in
     t, main_id
   ;;

@@ -226,6 +226,23 @@ let programs =
         new [i]char('a');
     }
     |}
+  ; {|
+    const x : int = 10;
+
+    fun main(): int { x }
+  |}
+  ; {|
+    const dialog_options : [][]char = 
+    [ "Wait"
+    , "Are our bodies really piles of dirt?"
+    , "And is the soul just a metaphor?"
+    , "I keep my head from looking too far up,"
+    , "I fear that there is a heaven above."
+      ];
+
+    fun main(i: int): []char { dialog_options[i] }
+  |}
+  ; {| fun leq(x: int, y: int) : bool { x <= y }|}
   ]
 ;;
 
@@ -250,7 +267,12 @@ let test ~mode program =
   let checked_ast =
     program
     |> May.For_testing.parse_string
-    |> Result.bind ~f:(fun ast -> May.Check.check_decls check ~decls:ast)
+    |> Result.bind ~f:(fun ast ->
+      May.Check.check_decls
+        check
+        ~decls:ast
+        ~load_file:(Utils.load_file ~mappings:[])
+        ~starting_file:Utils.starting_file)
     |> Result.map_error ~f:May.Comp_error.to_string
     |> Result.ok_or_failwith
   in
@@ -415,54 +437,57 @@ let%expect_test "qbe compiler generated code on sample programs" =
     │                                                      │             │         hlt                                                                  │   movl $3, %edi                                  │
     │                                                      │             │                                                                              │   callq panic_index_out_of_bounds                │
     │                                                      │             │ @b_good_index_14                                                             │   ud2                                            │
-    │                                                      │             │         %t_15 =l loadl %l_a_0                                                │ .Lbb2:                                           │
-    │                                                      │             │         %t_16 =l add %l_a_0, 8                                               │   movq (%rbx), %rax                              │
-    │                                                      │             │         %t_17 =l loaduw %t_16                                                │   movl 8(%rbx), %ecx                             │
-    │                                                      │             │         %t_18 =l add 0, %t_17                                                │   addq $0, %rcx                                  │
-    │                                                      │             │         %t_19 =l mul %t_18, 8                                                │   movq $10, (%rax, %rcx, 8)                      │
-    │                                                      │             │         %t_20 =l add %t_15, %t_19                                            │   movl 12(%rbx), %esi                            │
-    │                                                      │             │         %t_21 =l add %t_20, 0                                                │   cmpq $0, %rsi                                  │
-    │                                                      │             │         storel 10, %t_21                                                     │   setg %al                                       │
-    │                                                      │             │         %t_22 =l add %l_a_0, 12                                              │   movzbl %al, %eax                               │
-    │                                                      │             │         %t_23 =l loaduw %t_22                                                │   imull $1, %eax, %eax                           │
-    │                                                      │             │         %t_24 =w csgel 0, 0                                                  │   cmpl $0, %eax                                  │
-    │                                                      │             │         %t_25 =w csltl 0, %t_23                                              │   jnz .Lbb4                                      │
-    │                                                      │             │         %t_26 =w mul %t_24, %t_25                                            │   movl $5, %ecx                                  │
-    │                                                      │             │         jnz %t_26, @b_good_index_28, @b_bad_index_27                         │   movl $4, %edx                                  │
-    │                                                      │             │                                                                              │   movl $4, %esi                                  │
-    │                                                      │             │ @b_bad_index_27                                                              │   movl $4, %edi                                  │
-    │                                                      │             │         call $panic_index_out_of_bounds(w 4, w 4, w 4, w 5)                  │   callq panic_index_out_of_bounds                │
-    │                                                      │             │         hlt                                                                  │   ud2                                            │
-    │                                                      │             │                                                                              │ .Lbb4:                                           │
-    │                                                      │             │ @b_good_index_28                                                             │   movq (%rbx), %rcx                              │
-    │                                                      │             │         %t_29 =l loadl %l_a_0                                                │   movl 8(%rbx), %edx                             │
-    │                                                      │             │         %t_30 =l add %l_a_0, 8                                               │   movl $0, %eax                                  │
-    │                                                      │             │         %t_31 =l loaduw %t_30                                                │   addq %rdx, %rax                                │
-    │                                                      │             │         %t_32 =l add 0, %t_31                                                │   movq (%rcx, %rax, 8), %rax                     │
-    │                                                      │             │         %t_33 =l mul %t_32, 8                                                │   cmpq $2, %rsi                                  │
-    │                                                      │             │         %t_34 =l add %t_29, %t_33                                            │   setg %sil                                      │
-    │                                                      │             │         %t_35 =l loadl %t_34                                                 │   movzbl %sil, %esi                              │
-    │                                                      │             │         %t_36 =l add %l_a_0, 12                                              │   imull $1, %esi, %esi                           │
-    │                                                      │             │         %t_37 =l loaduw %t_36                                                │   cmpl $0, %esi                                  │
-    │                                                      │             │         %t_38 =w csgel 2, 0                                                  │   jnz .Lbb6                                      │
-    │                                                      │             │         %t_39 =w csltl 2, %t_37                                              │   movl $12, %ecx                                 │
-    │                                                      │             │         %t_40 =w mul %t_38, %t_39                                            │   movl $4, %edx                                  │
-    │                                                      │             │         jnz %t_40, @b_good_index_42, @b_bad_index_41                         │   movl $11, %esi                                 │
+    │                                                      │             │         %t_15 =l add %l_a_0, 0                                               │ .Lbb2:                                           │
+    │                                                      │             │         %t_16 =l loadl %t_15                                                 │   movq (%rbx), %rax                              │
+    │                                                      │             │         %t_17 =l add %l_a_0, 8                                               │   movl 8(%rbx), %ecx                             │
+    │                                                      │             │         %t_18 =l loaduw %t_17                                                │   addq $0, %rcx                                  │
+    │                                                      │             │         %t_19 =l add 0, %t_18                                                │   movq $10, (%rax, %rcx, 8)                      │
+    │                                                      │             │         %t_20 =l mul %t_19, 8                                                │   movl 12(%rbx), %esi                            │
+    │                                                      │             │         %t_21 =l add %t_16, %t_20                                            │   cmpq $0, %rsi                                  │
+    │                                                      │             │         %t_22 =l add %t_21, 0                                                │   setg %al                                       │
+    │                                                      │             │         storel 10, %t_22                                                     │   movzbl %al, %eax                               │
+    │                                                      │             │         %t_23 =l add %l_a_0, 12                                              │   imull $1, %eax, %eax                           │
+    │                                                      │             │         %t_24 =l loaduw %t_23                                                │   cmpl $0, %eax                                  │
+    │                                                      │             │         %t_25 =w csgel 0, 0                                                  │   jnz .Lbb4                                      │
+    │                                                      │             │         %t_26 =w csltl 0, %t_24                                              │   movl $5, %ecx                                  │
+    │                                                      │             │         %t_27 =w mul %t_25, %t_26                                            │   movl $4, %edx                                  │
+    │                                                      │             │         jnz %t_27, @b_good_index_29, @b_bad_index_28                         │   movl $4, %esi                                  │
     │                                                      │             │                                                                              │   movl $4, %edi                                  │
-    │                                                      │             │ @b_bad_index_41                                                              │   callq panic_index_out_of_bounds                │
-    │                                                      │             │         call $panic_index_out_of_bounds(w 4, w 11, w 4, w 12)                │   ud2                                            │
-    │                                                      │             │         hlt                                                                  │ .Lbb6:                                           │
-    │                                                      │             │                                                                              │   addq $2, %rdx                                  │
-    │                                                      │             │ @b_good_index_42                                                             │   movq (%rcx, %rdx, 8), %rcx                     │
-    │                                                      │             │         %t_43 =l loadl %l_a_0                                                │   addq %rcx, %rax                                │
-    │                                                      │             │         %t_44 =l add %l_a_0, 8                                               │   popq %rbx                                      │
-    │                                                      │             │         %t_45 =l loaduw %t_44                                                │   leave                                          │
-    │                                                      │             │         %t_46 =l add 2, %t_45                                                │   ret                                            │
-    │                                                      │             │         %t_47 =l mul %t_46, 8                                                │ .type g_main_0, @function                        │
-    │                                                      │             │         %t_48 =l add %t_43, %t_47                                            │ .size g_main_0, .-g_main_0                       │
-    │                                                      │             │         %t_49 =l loadl %t_48                                                 │ /* end function g_main_0 */                      │
-    │                                                      │             │         %t_50 =l add %t_35, %t_49                                            │                                                  │
-    │                                                      │             │         ret %t_50                                                            │ .section .note.GNU-stack,"",@progbits            │
+    │                                                      │             │ @b_bad_index_28                                                              │   callq panic_index_out_of_bounds                │
+    │                                                      │             │         call $panic_index_out_of_bounds(w 4, w 4, w 4, w 5)                  │   ud2                                            │
+    │                                                      │             │         hlt                                                                  │ .Lbb4:                                           │
+    │                                                      │             │                                                                              │   movq (%rbx), %rcx                              │
+    │                                                      │             │ @b_good_index_29                                                             │   movl 8(%rbx), %edx                             │
+    │                                                      │             │         %t_30 =l add %l_a_0, 0                                               │   movl $0, %eax                                  │
+    │                                                      │             │         %t_31 =l loadl %t_30                                                 │   addq %rdx, %rax                                │
+    │                                                      │             │         %t_32 =l add %l_a_0, 8                                               │   movq (%rcx, %rax, 8), %rax                     │
+    │                                                      │             │         %t_33 =l loaduw %t_32                                                │   cmpq $2, %rsi                                  │
+    │                                                      │             │         %t_34 =l add 0, %t_33                                                │   setg %sil                                      │
+    │                                                      │             │         %t_35 =l mul %t_34, 8                                                │   movzbl %sil, %esi                              │
+    │                                                      │             │         %t_36 =l add %t_31, %t_35                                            │   imull $1, %esi, %esi                           │
+    │                                                      │             │         %t_37 =l loadl %t_36                                                 │   cmpl $0, %esi                                  │
+    │                                                      │             │         %t_38 =l add %l_a_0, 12                                              │   jnz .Lbb6                                      │
+    │                                                      │             │         %t_39 =l loaduw %t_38                                                │   movl $12, %ecx                                 │
+    │                                                      │             │         %t_40 =w csgel 2, 0                                                  │   movl $4, %edx                                  │
+    │                                                      │             │         %t_41 =w csltl 2, %t_39                                              │   movl $11, %esi                                 │
+    │                                                      │             │         %t_42 =w mul %t_40, %t_41                                            │   movl $4, %edi                                  │
+    │                                                      │             │         jnz %t_42, @b_good_index_44, @b_bad_index_43                         │   callq panic_index_out_of_bounds                │
+    │                                                      │             │                                                                              │   ud2                                            │
+    │                                                      │             │ @b_bad_index_43                                                              │ .Lbb6:                                           │
+    │                                                      │             │         call $panic_index_out_of_bounds(w 4, w 11, w 4, w 12)                │   addq $2, %rdx                                  │
+    │                                                      │             │         hlt                                                                  │   movq (%rcx, %rdx, 8), %rcx                     │
+    │                                                      │             │                                                                              │   addq %rcx, %rax                                │
+    │                                                      │             │ @b_good_index_44                                                             │   popq %rbx                                      │
+    │                                                      │             │         %t_45 =l add %l_a_0, 0                                               │   leave                                          │
+    │                                                      │             │         %t_46 =l loadl %t_45                                                 │   ret                                            │
+    │                                                      │             │         %t_47 =l add %l_a_0, 8                                               │ .type g_main_0, @function                        │
+    │                                                      │             │         %t_48 =l loaduw %t_47                                                │ .size g_main_0, .-g_main_0                       │
+    │                                                      │             │         %t_49 =l add 2, %t_48                                                │ /* end function g_main_0 */                      │
+    │                                                      │             │         %t_50 =l mul %t_49, 8                                                │                                                  │
+    │                                                      │             │         %t_51 =l add %t_46, %t_50                                            │ .section .note.GNU-stack,"",@progbits            │
+    │                                                      │             │         %t_52 =l loadl %t_51                                                 │                                                  │
+    │                                                      │             │         %t_53 =l add %t_37, %t_52                                            │                                                  │
+    │                                                      │             │         ret %t_53                                                            │                                                  │
     │                                                      │             │                                                                              │                                                  │
     │                                                      │             │ }                                                                            │                                                  │
     │                                                      │             │                                                                              │                                                  │
@@ -505,41 +530,41 @@ let%expect_test "qbe compiler generated code on sample programs" =
     │                                                      │             │         call $constructor_Counter(l %t_0, l 24)                              │   movl $24, %edi                                 │
     │   fun get(): int {                                   │             │         %l_x_0 =l copy %t_0                                                  │   callq malloc                                   │
     │     this.x                                           │             │         %t_2 =l loadl %l_x_0                                                 │   movq %rax, %rdi                                │
-    │   }                                                  │             │         %t_3 =l add %t_2, 16                                                 │   movq $0, (%rdi)                                │
+    │   }                                                  │             │         %t_3 =l add %t_2, 24                                                 │   movq $0, (%rdi)                                │
     │                                                      │             │         %t_4 =l loadl %t_3                                                   │   movl $24, %esi                                 │
     │   fun add(other: Int) : Int {                        │             │         %t_5 =l call %t_4(l %l_x_0)                                          │   movq %rdi, %rbx                                │
     │     let a = this:get();                              │             │         %t_6 =l call $malloc(l 24)                                           │   callq constructor_Counter                      │
     │     let b = other:get();                             │             │         %t_7 =l add %t_6, 0                                                  │   movq %rbx, %rdi                                │
     │                                                      │             │         storel 0, %t_7                                                       │   movq (%rdi), %rax                              │
-    │     new Int(a + b)                                   │             │         call $constructor_Counter(l %t_6, l 16)                              │   movq 16(%rax), %rax                            │
+    │     new Int(a + b)                                   │             │         call $constructor_Counter(l %t_6, l 16)                              │   movq 24(%rax), %rax                            │
     │   }                                                  │             │         %l_y_1 =l copy %t_6                                                  │   movq %rdi, %rbx                                │
     │ }                                                    │             │         %t_8 =l loadl %l_y_1                                                 │   callq *%rax                                    │
-    │                                                      │             │         %t_9 =l add %t_8, 16                                                 │   movq %rbx, %rdi                                │
+    │                                                      │             │         %t_9 =l add %t_8, 24                                                 │   movq %rbx, %rdi                                │
     │ class Counter < Int {                                │             │         %t_10 =l loadl %t_9                                                  │   movq %rdi, %rbx                                │
     │   mut count : int;                                   │             │         %t_11 =l call %t_10(l %l_y_1)                                        │   movl $24, %edi                                 │
     │                                                      │             │         %t_12 =l loadl %l_x_0                                                │   callq malloc                                   │
-    │   constructor(x : int) {                             │             │         %t_13 =l add %t_12, 0                                                │   movq %rbx, %rdi                                │
+    │   constructor(x : int) {                             │             │         %t_13 =l add %t_12, 8                                                │   movq %rbx, %rdi                                │
     │     super(x);                                        │             │         %t_14 =l loadl %t_13                                                 │   movq %rax, %rsi                                │
     │     this.count = 0;                                  │             │         %t_15 =l call %t_14(l %l_x_0, l %l_y_1)                              │   movq $0, (%rsi)                                │
     │   }                                                  │             │         %l_z_2 =l copy %t_15                                                 │   movq %rsi, %r12                                │
     │                                                      │             │         %t_16 =l loadl %l_z_2                                                │   movl $16, %esi                                 │
-    │   overrides fun get(): int {                         │             │         %t_17 =l add %t_16, 8                                                │   movq %rdi, %rbx                                │
+    │   overrides fun get(): int {                         │             │         %t_17 =l add %t_16, 16                                               │   movq %rdi, %rbx                                │
     │     this.x + this.count                              │             │         %t_18 =l loadl %t_17                                                 │   movq %r12, %rdi                                │
     │   }                                                  │             │         %t_19 =l call %t_18(l %l_z_2)                                        │   callq constructor_Counter                      │
     │                                                      │             │         ret %t_19                                                            │   movq %rbx, %rdi                                │
     │   fun inc(): unit {                                  │             │                                                                              │   movq (%r12), %rax                              │
-    │     this.count = this.count + 1;                     │             │ }                                                                            │   movq 16(%rax), %rax                            │
+    │     this.count = this.count + 1;                     │             │ }                                                                            │   movq 24(%rax), %rax                            │
     │   }                                                  │             │ function $constructor_Int(l %this, l %l_x_0, )                               │   movq %rdi, %rbx                                │
     │ }                                                    │             │ {                                                                            │   movq %r12, %rdi                                │
     │                                                      │             │ @start                                                                       │   callq *%rax                                    │
     │ fun main() : int {                                   │             │         %t_0 =l add %this, 8                                                 │   movq %r12, %rsi                                │
     │   let x = new Counter(24);                           │             │         storel %l_x_0, %t_0                                                  │   movq %rbx, %rdi                                │
     │   x:inc();                                           │             │         %t_1 =l add %this, 0                                                 │   movq (%rdi), %rax                              │
-    │   let y = new Counter(16);                           │             │         storel $vtable_Int, %t_1                                             │   movq (%rax), %rax                              │
+    │   let y = new Counter(16);                           │             │         storel $vtable_Int, %t_1                                             │   movq 8(%rax), %rax                             │
     │   y:inc();                                           │             │         ret                                                                  │   callq *%rax                                    │
     │   let z = x:add(y);                                  │             │                                                                              │   movq %rax, %rdi                                │
     │   z:get()                                            │             │ }                                                                            │   movq (%rdi), %rax                              │
-    │ }                                                    │             │ function l $method_Int_get(l %this, )                                        │   movq 8(%rax), %rax                             │
+    │ }                                                    │             │ function l $method_Int_get(l %this, )                                        │   movq 16(%rax), %rax                            │
     │                                                      │             │ {                                                                            │   callq *%rax                                    │
     │                                                      │             │ @start                                                                       │   popq %r12                                      │
     │                                                      │             │         %t_0 =l add %this, 8                                                 │   popq %rbx                                      │
@@ -551,24 +576,24 @@ let%expect_test "qbe compiler generated code on sample programs" =
     │                                                      │             │ {                                                                            │                                                  │
     │                                                      │             │ @start                                                                       │ .text                                            │
     │                                                      │             │         %t_0 =l loadl %this                                                  │ constructor_Int:                                 │
-    │                                                      │             │         %t_1 =l add %t_0, 8                                                  │   pushq %rbp                                     │
+    │                                                      │             │         %t_1 =l add %t_0, 16                                                 │   pushq %rbp                                     │
     │                                                      │             │         %t_2 =l loadl %t_1                                                   │   movq %rsp, %rbp                                │
     │                                                      │             │         %t_3 =l call %t_2(l %this)                                           │   movq %rsi, 8(%rdi)                             │
     │                                                      │             │         %l_a_1 =l copy %t_3                                                  │   leaq vtable_Int(%rip), %rax                    │
     │                                                      │             │         %t_4 =l loadl %l_other_0                                             │   movq %rax, (%rdi)                              │
-    │                                                      │             │         %t_5 =l add %t_4, 8                                                  │   leave                                          │
+    │                                                      │             │         %t_5 =l add %t_4, 16                                                 │   leave                                          │
     │                                                      │             │         %t_6 =l loadl %t_5                                                   │   ret                                            │
     │                                                      │             │         %t_7 =l call %t_6(l %l_other_0)                                      │ .type constructor_Int, @function                 │
     │                                                      │             │         %l_b_2 =l copy %t_7                                                  │ .size constructor_Int, .-constructor_Int         │
     │                                                      │             │         %t_8 =l add %l_a_1, %l_b_2                                           │ /* end function constructor_Int */               │
-    │                                                      │             │         %t_9 =l call $malloc(l 24)                                           │                                                  │
+    │                                                      │             │         %t_9 =l call $malloc(l 16)                                           │                                                  │
     │                                                      │             │         %t_10 =l add %t_9, 0                                                 │ .text                                            │
     │                                                      │             │         storel 0, %t_10                                                      │ method_Int_get:                                  │
     │                                                      │             │         call $constructor_Int(l %t_9, l %t_8)                                │   pushq %rbp                                     │
     │                                                      │             │         ret %t_9                                                             │   movq %rsp, %rbp                                │
     │                                                      │             │                                                                              │   movq 8(%rdi), %rax                             │
     │                                                      │             │ }                                                                            │   leave                                          │
-    │                                                      │             │ data $vtable_Int = { l $method_Int_add, l $method_Int_get, }                 │   ret                                            │
+    │                                                      │             │ data $vtable_Int = { l 0, l $method_Int_add, l $method_Int_get, }            │   ret                                            │
     │                                                      │             │ function $constructor_Counter(l %this, l %l_x_0, )                           │ .type method_Int_get, @function                  │
     │                                                      │             │ {                                                                            │ .size method_Int_get, .-method_Int_get           │
     │                                                      │             │ @start                                                                       │ /* end function method_Int_get */                │
@@ -581,15 +606,15 @@ let%expect_test "qbe compiler generated code on sample programs" =
     │                                                      │             │                                                                              │   pushq %rbx                                     │
     │                                                      │             │ }                                                                            │   movq %rsi, %rbx                                │
     │                                                      │             │ function l $method_Counter_get(l %this, )                                    │   movq (%rdi), %rax                              │
-    │                                                      │             │ {                                                                            │   movq 8(%rax), %rax                             │
+    │                                                      │             │ {                                                                            │   movq 16(%rax), %rax                            │
     │                                                      │             │ @start                                                                       │   callq *%rax                                    │
     │                                                      │             │         %t_0 =l add %this, 8                                                 │   movq %rbx, %rdi                                │
     │                                                      │             │         %t_1 =l loadl %t_0                                                   │   movq %rax, %rbx                                │
     │                                                      │             │         %t_2 =l add %this, 16                                                │   movq (%rdi), %rax                              │
-    │                                                      │             │         %t_3 =l loadl %t_2                                                   │   movq 8(%rax), %rax                             │
+    │                                                      │             │         %t_3 =l loadl %t_2                                                   │   movq 16(%rax), %rax                            │
     │                                                      │             │         %t_4 =l add %t_1, %t_3                                               │   callq *%rax                                    │
     │                                                      │             │         ret %t_4                                                             │   addq %rax, %rbx                                │
-    │                                                      │             │                                                                              │   movl $24, %edi                                 │
+    │                                                      │             │                                                                              │   movl $16, %edi                                 │
     │                                                      │             │ }                                                                            │   callq malloc                                   │
     │                                                      │             │ function w $method_Counter_inc(l %this, )                                    │   movq %rbx, %rsi                                │
     │                                                      │             │ {                                                                            │   movq %rax, %rbx                                │
@@ -602,11 +627,12 @@ let%expect_test "qbe compiler generated code on sample programs" =
     │                                                      │             │         ret 0                                                                │   ret                                            │
     │                                                      │             │                                                                              │ .type method_Int_add, @function                  │
     │                                                      │             │ }                                                                            │ .size method_Int_add, .-method_Int_add           │
-    │                                                      │             │ data $vtable_Counter = { l $method_Int_add, l $method_Counter_get, l         │ /* end function method_Int_add */                │
+    │                                                      │             │ data $vtable_Counter = { l 0, l $method_Int_add, l $method_Counter_get, l    │ /* end function method_Int_add */                │
     │                                                      │             │ $method_Counter_inc, }                                                       │                                                  │
     │                                                      │             │                                                                              │ .data                                            │
     │                                                      │             │                                                                              │ .balign 8                                        │
     │                                                      │             │                                                                              │ vtable_Int:                                      │
+    │                                                      │             │                                                                              │   .quad 0                                        │
     │                                                      │             │                                                                              │   .quad method_Int_add+0                         │
     │                                                      │             │                                                                              │   .quad method_Int_get+0                         │
     │                                                      │             │                                                                              │ /* end data */                                   │
@@ -660,6 +686,7 @@ let%expect_test "qbe compiler generated code on sample programs" =
     │                                                      │             │                                                                              │ .data                                            │
     │                                                      │             │                                                                              │ .balign 8                                        │
     │                                                      │             │                                                                              │ vtable_Counter:                                  │
+    │                                                      │             │                                                                              │   .quad 0                                        │
     │                                                      │             │                                                                              │   .quad method_Int_add+0                         │
     │                                                      │             │                                                                              │   .quad method_Counter_get+0                     │
     │                                                      │             │                                                                              │   .quad method_Counter_inc+0                     │
@@ -676,13 +703,13 @@ let%expect_test "qbe compiler generated code on sample programs" =
     │   constructor () { super() }                         │             │         storel 0, %t_1                                                       │   pushq %rbx                                     │
     │   overrides fun m() : int { super:m() + 10}          │             │         call $constructor_B(l %t_0)                                          │   movl $8, %edi                                  │
     │ }                                                    │             │         %t_2 =l loadl %t_0                                                   │   callq malloc                                   │
-    │ fun main() : int {                                   │             │         %t_3 =l add %t_2, 0                                                  │   movq %rax, %rdi                                │
+    │ fun main() : int {                                   │             │         %t_3 =l add %t_2, 8                                                  │   movq %rax, %rdi                                │
     │   (new B()):m()                                      │             │         %t_4 =l loadl %t_3                                                   │   movq $0, (%rdi)                                │
     │ }                                                    │             │         %t_5 =l call %t_4(l %t_0)                                            │   movq %rdi, %rbx                                │
     │                                                      │             │         ret %t_5                                                             │   callq constructor_B                            │
     │                                                      │             │                                                                              │   movq %rbx, %rdi                                │
     │                                                      │             │ }                                                                            │   movq (%rdi), %rax                              │
-    │                                                      │             │ function $constructor_A(l %this, )                                           │   movq (%rax), %rax                              │
+    │                                                      │             │ function $constructor_A(l %this, )                                           │   movq 8(%rax), %rax                             │
     │                                                      │             │ {                                                                            │   callq *%rax                                    │
     │                                                      │             │ @start                                                                       │   popq %rbx                                      │
     │                                                      │             │         %t_0 =l add %this, 0                                                 │   leave                                          │
@@ -696,7 +723,7 @@ let%expect_test "qbe compiler generated code on sample programs" =
     │                                                      │             │         ret 5                                                                │   pushq %rbp                                     │
     │                                                      │             │                                                                              │   movq %rsp, %rbp                                │
     │                                                      │             │ }                                                                            │   leaq vtable_A(%rip), %rax                      │
-    │                                                      │             │ data $vtable_A = { l $method_A_m, }                                          │   movq %rax, (%rdi)                              │
+    │                                                      │             │ data $vtable_A = { l 0, l $method_A_m, }                                     │   movq %rax, (%rdi)                              │
     │                                                      │             │ function $constructor_B(l %this, )                                           │   leave                                          │
     │                                                      │             │ {                                                                            │   ret                                            │
     │                                                      │             │ @start                                                                       │ .type constructor_A, @function                   │
@@ -714,9 +741,10 @@ let%expect_test "qbe compiler generated code on sample programs" =
     │                                                      │             │         ret %t_0                                                             │ .size method_A_m, .-method_A_m                   │
     │                                                      │             │                                                                              │ /* end function method_A_m */                    │
     │                                                      │             │ }                                                                            │                                                  │
-    │                                                      │             │ data $vtable_B = { l $method_B_m, }                                          │ .data                                            │
+    │                                                      │             │ data $vtable_B = { l 0, l $method_B_m, }                                     │ .data                                            │
     │                                                      │             │                                                                              │ .balign 8                                        │
     │                                                      │             │                                                                              │ vtable_A:                                        │
+    │                                                      │             │                                                                              │   .quad 0                                        │
     │                                                      │             │                                                                              │   .quad method_A_m+0                             │
     │                                                      │             │                                                                              │ /* end data */                                   │
     │                                                      │             │                                                                              │                                                  │
@@ -753,6 +781,7 @@ let%expect_test "qbe compiler generated code on sample programs" =
     │                                                      │             │                                                                              │ .data                                            │
     │                                                      │             │                                                                              │ .balign 8                                        │
     │                                                      │             │                                                                              │ vtable_B:                                        │
+    │                                                      │             │                                                                              │   .quad 0                                        │
     │                                                      │             │                                                                              │   .quad method_B_m+0                             │
     │                                                      │             │                                                                              │ /* end data */                                   │
     │                                                      │             │                                                                              │                                                  │
@@ -767,29 +796,29 @@ let%expect_test "qbe compiler generated code on sample programs" =
     │     this.v = v;                                      │             │         storel 0, %t_1                                                       │   pushq %rbx                                     │
     │     this.next = null;                                │             │         call $constructor_LinkedList(l %t_0, l 4)                            │   movl $24, %edi                                 │
     │   }                                                  │             │         %t_2 =l loadl %t_0                                                   │   callq malloc                                   │
-    │                                                      │             │         %t_3 =l add %t_2, 8                                                  │   movq %rax, %rdi                                │
+    │                                                      │             │         %t_3 =l add %t_2, 16                                                 │   movq %rax, %rdi                                │
     │   fun setNext(next : ?LinkedList) : unit {           │             │         %t_4 =l loadl %t_3                                                   │   movq $0, (%rdi)                                │
     │     this.next = next;                                │             │         %t_5 =l call %t_4(l %t_0, l 2)                                       │   movl $4, %esi                                  │
     │   }                                                  │             │         %t_6 =l loadl %t_5                                                   │   movq %rdi, %rbx                                │
-    │                                                      │             │         %t_7 =l add %t_6, 8                                                  │   callq constructor_LinkedList                   │
+    │                                                      │             │         %t_7 =l add %t_6, 16                                                 │   callq constructor_LinkedList                   │
     │   fun snoc(v : int) : LinkedList {                   │             │         %t_8 =l loadl %t_7                                                   │   movq %rbx, %rdi                                │
     │     let new_head = new LinkedList(v);                │             │         %t_9 =l call %t_8(l %t_5, l 7)                                       │   movq (%rdi), %rax                              │
-    │     new_head:setNext(this);                          │             │         %t_10 =l neg 1                                                       │   movq 8(%rax), %rax                             │
+    │     new_head:setNext(this);                          │             │         %t_10 =l neg 1                                                       │   movq 16(%rax), %rax                            │
     │     new_head                                         │             │         %t_11 =l loadl %t_9                                                  │   movl $2, %esi                                  │
-    │   }                                                  │             │         %t_12 =l add %t_11, 8                                                │   callq *%rax                                    │
+    │   }                                                  │             │         %t_12 =l add %t_11, 16                                               │   callq *%rax                                    │
     │                                                      │             │         %t_13 =l loadl %t_12                                                 │   movq %rax, %rdi                                │
     │   fun sum() : int {                                  │             │         %t_14 =l call %t_13(l %t_9, l %t_10)                                 │   movq (%rdi), %rax                              │
-    │     this.v + (if? n = this.next { n:sum() } else {   │             │         %l_list_0 =l copy %t_14                                              │   movq 8(%rax), %rax                             │
+    │     this.v + (if? n = this.next { n:sum() } else {   │             │         %l_list_0 =l copy %t_14                                              │   movq 16(%rax), %rax                            │
     │ 0 })                                                 │             │         %t_15 =l loadl %l_list_0                                             │   movl $7, %esi                                  │
-    │   }                                                  │             │         %t_16 =l add %t_15, 16                                               │   callq *%rax                                    │
+    │   }                                                  │             │         %t_16 =l add %t_15, 24                                               │   callq *%rax                                    │
     │ }                                                    │             │         %t_17 =l loadl %t_16                                                 │   movq %rax, %rdi                                │
     │                                                      │             │         %t_18 =l call %t_17(l %l_list_0)                                     │   movq (%rdi), %rax                              │
-    │ fun main() : int {                                   │             │         ret %t_18                                                            │   movq 8(%rax), %rax                             │
+    │ fun main() : int {                                   │             │         ret %t_18                                                            │   movq 16(%rax), %rax                            │
     │   let list = new                                     │             │                                                                              │   movq $-1, %rsi                                 │
     │ LinkedList(4):snoc(2):snoc(7):snoc(-1);              │             │ }                                                                            │   callq *%rax                                    │
     │   list:sum()                                         │             │ function $constructor_LinkedList(l %this, l %l_v_0, )                        │   movq %rax, %rdi                                │
     │ }                                                    │             │ {                                                                            │   movq (%rdi), %rax                              │
-    │                                                      │             │ @start                                                                       │   movq 16(%rax), %rax                            │
+    │                                                      │             │ @start                                                                       │   movq 24(%rax), %rax                            │
     │                                                      │             │         %t_0 =l add %this, 16                                                │   callq *%rax                                    │
     │                                                      │             │         storel %l_v_0, %t_0                                                  │   popq %rbx                                      │
     │                                                      │             │         %t_1 =l add %this, 8                                                 │   leave                                          │
@@ -816,7 +845,7 @@ let%expect_test "qbe compiler generated code on sample programs" =
     │                                                      │             │         call $constructor_LinkedList(l %t_0, l %l_v_0)                       │ .text                                            │
     │                                                      │             │         %l_new_head_1 =l copy %t_0                                           │ method_LinkedList_setNext:                       │
     │                                                      │             │         %t_2 =l loadl %l_new_head_1                                          │   pushq %rbp                                     │
-    │                                                      │             │         %t_3 =l add %t_2, 0                                                  │   movq %rsp, %rbp                                │
+    │                                                      │             │         %t_3 =l add %t_2, 8                                                  │   movq %rsp, %rbp                                │
     │                                                      │             │         %t_4 =l loadl %t_3                                                   │   movq %rsi, 8(%rdi)                             │
     │                                                      │             │         %t_5 =l call %t_4(l %l_new_head_1, l %this)                          │   movl $0, %eax                                  │
     │                                                      │             │         ret %l_new_head_1                                                    │   leave                                          │
@@ -834,7 +863,7 @@ let%expect_test "qbe compiler generated code on sample programs" =
     │                                                      │             │ @b_if_value_4                                                                │   pushq %r12                                     │
     │                                                      │             │         %l_n_0 =l copy %t_3                                                  │   movq %rsi, %rbx                                │
     │                                                      │             │         %t_7 =l loadl %l_n_0                                                 │   movq %rdi, %r12                                │
-    │                                                      │             │         %t_8 =l add %t_7, 16                                                 │   movl $24, %edi                                 │
+    │                                                      │             │         %t_8 =l add %t_7, 24                                                 │   movl $24, %edi                                 │
     │                                                      │             │         %t_9 =l loadl %t_8                                                   │   callq malloc                                   │
     │                                                      │             │         %t_10 =l call %t_9(l %l_n_0)                                         │   movq %rbx, %rsi                                │
     │                                                      │             │         %t_11 =l copy %t_10                                                  │   movq %rax, %rbx                                │
@@ -845,11 +874,11 @@ let%expect_test "qbe compiler generated code on sample programs" =
     │                                                      │             │         jmp @b_after_ifq_6                                                   │   movq %rbx, %rax                                │
     │                                                      │             │                                                                              │   movq %rax, %rbx                                │
     │                                                      │             │ @b_after_ifq_6                                                               │   movq (%rax), %rax                              │
-    │                                                      │             │         %t_12 =l add %t_1, %t_11                                             │   movq (%rax), %rax                              │
+    │                                                      │             │         %t_12 =l add %t_1, %t_11                                             │   movq 8(%rax), %rax                             │
     │                                                      │             │         ret %t_12                                                            │   movq %rbx, %rdi                                │
     │                                                      │             │                                                                              │   callq *%rax                                    │
     │                                                      │             │ }                                                                            │   movq %rbx, %rax                                │
-    │                                                      │             │ data $vtable_LinkedList = { l $method_LinkedList_setNext, l                  │   popq %r12                                      │
+    │                                                      │             │ data $vtable_LinkedList = { l 0, l $method_LinkedList_setNext, l             │   popq %r12                                      │
     │                                                      │             │ $method_LinkedList_snoc, l $method_LinkedList_sum, }                         │   popq %rbx                                      │
     │                                                      │             │                                                                              │   leave                                          │
     │                                                      │             │                                                                              │   ret                                            │
@@ -872,7 +901,7 @@ let%expect_test "qbe compiler generated code on sample programs" =
     │                                                      │             │                                                                              │   jmp .Lbb11                                     │
     │                                                      │             │                                                                              │ .Lbb10:                                          │
     │                                                      │             │                                                                              │   movq (%rdi), %rax                              │
-    │                                                      │             │                                                                              │   movq 16(%rax), %rax                            │
+    │                                                      │             │                                                                              │   movq 24(%rax), %rax                            │
     │                                                      │             │                                                                              │   callq *%rax                                    │
     │                                                      │             │                                                                              │ .Lbb11:                                          │
     │                                                      │             │                                                                              │   addq %rbx, %rax                                │
@@ -887,6 +916,7 @@ let%expect_test "qbe compiler generated code on sample programs" =
     │                                                      │             │                                                                              │ .data                                            │
     │                                                      │             │                                                                              │ .balign 8                                        │
     │                                                      │             │                                                                              │ vtable_LinkedList:                               │
+    │                                                      │             │                                                                              │   .quad 0                                        │
     │                                                      │             │                                                                              │   .quad method_LinkedList_setNext+0              │
     │                                                      │             │                                                                              │   .quad method_LinkedList_snoc+0                 │
     │                                                      │             │                                                                              │   .quad method_LinkedList_sum+0                  │
@@ -915,7 +945,7 @@ let%expect_test "qbe compiler generated code on sample programs" =
     │                                                      │             │         ret                                                                  │   ret                                            │
     │                                                      │             │                                                                              │ .type g_main_0, @function                        │
     │                                                      │             │ }                                                                            │ .size g_main_0, .-g_main_0                       │
-    │                                                      │             │ data $vtable_A = { }                                                         │ /* end function g_main_0 */                      │
+    │                                                      │             │ data $vtable_A = { l 0, }                                                    │ /* end function g_main_0 */                      │
     │                                                      │             │                                                                              │                                                  │
     │                                                      │             │                                                                              │ .text                                            │
     │                                                      │             │                                                                              │ constructor_A:                                   │
@@ -929,10 +959,10 @@ let%expect_test "qbe compiler generated code on sample programs" =
     │                                                      │             │                                                                              │ .size constructor_A, .-constructor_A             │
     │                                                      │             │                                                                              │ /* end function constructor_A */                 │
     │                                                      │             │                                                                              │                                                  │
-    │                                                      │             │                                                                              │ .bss                                             │
+    │                                                      │             │                                                                              │ .data                                            │
     │                                                      │             │                                                                              │ .balign 8                                        │
     │                                                      │             │                                                                              │ vtable_A:                                        │
-    │                                                      │             │                                                                              │   .fill 0,1,0                                    │
+    │                                                      │             │                                                                              │   .quad 0                                        │
     │                                                      │             │                                                                              │ /* end data */                                   │
     │                                                      │             │                                                                              │                                                  │
     │                                                      │             │                                                                              │ .section .note.GNU-stack,"",@progbits            │
@@ -963,7 +993,7 @@ let%expect_test "qbe compiler generated code on sample programs" =
     │                                                      │             │         ret                                                                  │   popq %rbx                                      │
     │                                                      │             │                                                                              │   leave                                          │
     │                                                      │             │ }                                                                            │   ret                                            │
-    │                                                      │             │ data $vtable_A = { }                                                         │ .type g_main_0, @function                        │
+    │                                                      │             │ data $vtable_A = { l 0, }                                                    │ .type g_main_0, @function                        │
     │                                                      │             │                                                                              │ .size g_main_0, .-g_main_0                       │
     │                                                      │             │                                                                              │ /* end function g_main_0 */                      │
     │                                                      │             │                                                                              │                                                  │
@@ -979,10 +1009,10 @@ let%expect_test "qbe compiler generated code on sample programs" =
     │                                                      │             │                                                                              │ .size constructor_A, .-constructor_A             │
     │                                                      │             │                                                                              │ /* end function constructor_A */                 │
     │                                                      │             │                                                                              │                                                  │
-    │                                                      │             │                                                                              │ .bss                                             │
+    │                                                      │             │                                                                              │ .data                                            │
     │                                                      │             │                                                                              │ .balign 8                                        │
     │                                                      │             │                                                                              │ vtable_A:                                        │
-    │                                                      │             │                                                                              │   .fill 0,1,0                                    │
+    │                                                      │             │                                                                              │   .quad 0                                        │
     │                                                      │             │                                                                              │ /* end data */                                   │
     │                                                      │             │                                                                              │                                                  │
     │                                                      │             │                                                                              │ .section .note.GNU-stack,"",@progbits            │
@@ -1002,7 +1032,7 @@ let%expect_test "qbe compiler generated code on sample programs" =
     │   constructor(x : int, y : int) {                    │             │ @b_if_value_3                                                                │   movq %rdi, %rbx                                │
     │     super(x);                                        │             │         %l_b_1 =l copy %t_2                                                  │   callq constructor_A                            │
     │     this.y = y;                                      │             │         %t_6 =l loadl %l_b_1                                                 │   movq %rbx, %rdi                                │
-    │   }                                                  │             │         %t_7 =l add %t_6, 0                                                  │   movl $22, %esi                                 │
+    │   }                                                  │             │         %t_7 =l add %t_6, 8                                                  │   movl $22, %esi                                 │
     │                                                      │             │         %t_8 =l loadl %t_7                                                   │   callq evolver_B                                │
     │   constructor(y : int) evolves A {                   │             │         %t_9 =l call %t_8(l %l_b_1)                                          │   movq %rax, %rdi                                │
     │     this.y = y;                                      │             │         %t_10 =l copy %t_9                                                   │   cmpl $0, %edi                                  │
@@ -1011,7 +1041,7 @@ let%expect_test "qbe compiler generated code on sample programs" =
     │   fun sum() : int {                                  │             │ @b_if_null_4                                                                 │   jmp .Lbb3                                      │
     │     this.x + this.y                                  │             │         %t_11 =l neg 1                                                       │ .Lbb2:                                           │
     │   }                                                  │             │         %t_10 =l copy %t_11                                                  │   movq (%rdi), %rax                              │
-    │ }                                                    │             │         jmp @b_after_ifq_5                                                   │   movq (%rax), %rax                              │
+    │ }                                                    │             │         jmp @b_after_ifq_5                                                   │   movq 8(%rax), %rax                             │
     │                                                      │             │                                                                              │   callq *%rax                                    │
     │ fun main() : int {                                   │             │ @b_after_ifq_5                                                               │ .Lbb3:                                           │
     │   let a = new A(20);                                 │             │         ret %t_10                                                            │   popq %rbx                                      │
@@ -1027,17 +1057,17 @@ let%expect_test "qbe compiler generated code on sample programs" =
     │                                                      │             │         ret                                                                  │   movq %rsp, %rbp                                │
     │                                                      │             │                                                                              │   movq %rsi, 8(%rdi)                             │
     │                                                      │             │ }                                                                            │   leaq vtable_A(%rip), %rax                      │
-    │                                                      │             │ data $vtable_A = { }                                                         │   movq %rax, (%rdi)                              │
+    │                                                      │             │ data $vtable_A = { l 0, }                                                    │   movq %rax, (%rdi)                              │
     │                                                      │             │ function $constructor_B(l %this, l %l_x_0, l %l_y_1, )                       │   leave                                          │
     │                                                      │             │ {                                                                            │   ret                                            │
     │                                                      │             │ @start                                                                       │ .type constructor_A, @function                   │
     │                                                      │             │         %t_0 =w call $constructor_A(l %this, l %l_x_0)                       │ .size constructor_A, .-constructor_A             │
     │                                                      │             │         %t_1 =l add %this, 16                                                │ /* end function constructor_A */                 │
     │                                                      │             │         storel %l_y_1, %t_1                                                  │                                                  │
-    │                                                      │             │         %t_2 =l add %this, 0                                                 │ .bss                                             │
+    │                                                      │             │         %t_2 =l add %this, 0                                                 │ .data                                            │
     │                                                      │             │         storel $vtable_B, %t_2                                               │ .balign 8                                        │
     │                                                      │             │         ret                                                                  │ vtable_A:                                        │
-    │                                                      │             │                                                                              │   .fill 0,1,0                                    │
+    │                                                      │             │                                                                              │   .quad 0                                        │
     │                                                      │             │ }                                                                            │ /* end data */                                   │
     │                                                      │             │ function l $evolver_B(l %this, l %l_y_0, )                                   │                                                  │
     │                                                      │             │ {                                                                            │ .text                                            │
@@ -1069,7 +1099,7 @@ let%expect_test "qbe compiler generated code on sample programs" =
     │                                                      │             │         ret %t_4                                                             │   movq %rdi, %rax                                │
     │                                                      │             │                                                                              │   movq (%rax), %rdx                              │
     │                                                      │             │ }                                                                            │   leaq vtable_A(%rip), %rcx                      │
-    │                                                      │             │ data $vtable_B = { l $method_B_sum, }                                        │   cmpq %rcx, %rdx                                │
+    │                                                      │             │ data $vtable_B = { l 0, l $method_B_sum, }                                   │   cmpq %rcx, %rdx                                │
     │                                                      │             │                                                                              │   jz .Lbb10                                      │
     │                                                      │             │                                                                              │   movl $0, %eax                                  │
     │                                                      │             │                                                                              │   jmp .Lbb11                                     │
@@ -1100,28 +1130,43 @@ let%expect_test "qbe compiler generated code on sample programs" =
     │                                                      │             │                                                                              │ .data                                            │
     │                                                      │             │                                                                              │ .balign 8                                        │
     │                                                      │             │                                                                              │ vtable_B:                                        │
+    │                                                      │             │                                                                              │   .quad 0                                        │
     │                                                      │             │                                                                              │   .quad method_B_sum+0                           │
     │                                                      │             │                                                                              │ /* end data */                                   │
     │                                                      │             │                                                                              │                                                  │
     │                                                      │             │                                                                              │ .section .note.GNU-stack,"",@progbits            │
     │                                                      │             │                                                                              │                                                  │
     ├──────────────────────────────────────────────────────┼─────────────┼──────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────┤
-    │ module Std {                                         │ g_main_1    │ function w $g_Std_print_0(l %l_extern_0, )                                   │ .text                                            │
-    │   extern fun print([]char) : unit =                  │             │ {                                                                            │ g_Std_print_0:                                   │
-    │ "internal_may_print_string";                         │             │ @start                                                                       │   pushq %rbp                                     │
-    │ }                                                    │             │         %t_0 =w call $internal_may_print_string(l %l_extern_0)               │   movq %rsp, %rbp                                │
-    │                                                      │             │         ret %t_0                                                             │   callq internal_may_print_string                │
-    │ fun main() : int {                                   │             │                                                                              │   leave                                          │
-    │   Std.print("Hello world!\n");                       │             │ }                                                                            │   ret                                            │
-    │   0                                                  │             │ function l $g_main_1()                                                       │ .type g_Std_print_0, @function                   │
-    │ }                                                    │             │ {                                                                            │ .size g_Std_print_0, .-g_Std_print_0             │
-    │                                                      │             │ @start                                                                       │ /* end function g_Std_print_0 */                 │
-    │                                                      │             │         %t_2 =w call $g_Std_print_0(l $string_t_1)                           │                                                  │
-    │                                                      │             │         ret 0                                                                │ .text                                            │
+    │ module Std {                                         │ g_main_1    │ data $.static.1 = { l $.static.2, w 0, w 13, }                               │ .data                                            │
+    │   extern fun print([]char) : unit =                  │             │ data $.static.2 = { b "Hello world!\n", }                                    │ .balign 8                                        │
+    │ "internal_may_print_string";                         │             │ function w $g_Std_print_0(l %l_extern_0, )                                   │ .static.1:                                       │
+    │ }                                                    │             │ {                                                                            │   .quad .static.2+0                              │
+    │                                                      │             │ @start                                                                       │   .int 0                                         │
+    │ fun main() : int {                                   │             │         %t_0 =w call $internal_may_print_string(l %l_extern_0)               │   .int 13                                        │
+    │   Std.print("Hello world!\n");                       │             │         ret %t_0                                                             │ /* end data */                                   │
+    │   0                                                  │             │                                                                              │                                                  │
+    │ }                                                    │             │ }                                                                            │ .data                                            │
+    │                                                      │             │ function l $g_main_1()                                                       │ .balign 8                                        │
+    │                                                      │             │ {                                                                            │ .static.2:                                       │
+    │                                                      │             │ @start                                                                       │   .ascii "Hello world!\n"                        │
+    │                                                      │             │         %t_0 =w call $g_Std_print_0(l $.static.1)                            │ /* end data */                                   │
+    │                                                      │             │         ret 0                                                                │                                                  │
+    │                                                      │             │                                                                              │ .text                                            │
+    │                                                      │             │ }                                                                            │ g_Std_print_0:                                   │
+    │                                                      │             │                                                                              │   pushq %rbp                                     │
+    │                                                      │             │                                                                              │   movq %rsp, %rbp                                │
+    │                                                      │             │                                                                              │   callq internal_may_print_string                │
+    │                                                      │             │                                                                              │   leave                                          │
+    │                                                      │             │                                                                              │   ret                                            │
+    │                                                      │             │                                                                              │ .type g_Std_print_0, @function                   │
+    │                                                      │             │                                                                              │ .size g_Std_print_0, .-g_Std_print_0             │
+    │                                                      │             │                                                                              │ /* end function g_Std_print_0 */                 │
+    │                                                      │             │                                                                              │                                                  │
+    │                                                      │             │                                                                              │ .text                                            │
     │                                                      │             │                                                                              │ g_main_1:                                        │
-    │                                                      │             │ }                                                                            │   pushq %rbp                                     │
-    │                                                      │             │ data $raw_string_t_0 = { b "Hello world!\n", }                               │   movq %rsp, %rbp                                │
-    │                                                      │             │ data $string_t_1 = { l $raw_string_t_0, w 0, w 13, }                         │   leaq string_t_1(%rip), %rdi                    │
+    │                                                      │             │                                                                              │   pushq %rbp                                     │
+    │                                                      │             │                                                                              │   movq %rsp, %rbp                                │
+    │                                                      │             │                                                                              │   leaq .static.1(%rip), %rdi                     │
     │                                                      │             │                                                                              │   callq g_Std_print_0                            │
     │                                                      │             │                                                                              │   movl $0, %eax                                  │
     │                                                      │             │                                                                              │   leave                                          │
@@ -1129,20 +1174,6 @@ let%expect_test "qbe compiler generated code on sample programs" =
     │                                                      │             │                                                                              │ .type g_main_1, @function                        │
     │                                                      │             │                                                                              │ .size g_main_1, .-g_main_1                       │
     │                                                      │             │                                                                              │ /* end function g_main_1 */                      │
-    │                                                      │             │                                                                              │                                                  │
-    │                                                      │             │                                                                              │ .data                                            │
-    │                                                      │             │                                                                              │ .balign 8                                        │
-    │                                                      │             │                                                                              │ raw_string_t_0:                                  │
-    │                                                      │             │                                                                              │   .ascii "Hello world!\n"                        │
-    │                                                      │             │                                                                              │ /* end data */                                   │
-    │                                                      │             │                                                                              │                                                  │
-    │                                                      │             │                                                                              │ .data                                            │
-    │                                                      │             │                                                                              │ .balign 8                                        │
-    │                                                      │             │                                                                              │ string_t_1:                                      │
-    │                                                      │             │                                                                              │   .quad raw_string_t_0+0                         │
-    │                                                      │             │                                                                              │   .int 0                                         │
-    │                                                      │             │                                                                              │   .int 13                                        │
-    │                                                      │             │                                                                              │ /* end data */                                   │
     │                                                      │             │                                                                              │                                                  │
     │                                                      │             │                                                                              │ .section .note.GNU-stack,"",@progbits            │
     │                                                      │             │                                                                              │                                                  │
@@ -1176,150 +1207,154 @@ let%expect_test "qbe compiler generated code on sample programs" =
     │   Std.Int.println(my_sub_array[3]);                  │             │         %t_2 =l add %t_0, 0                                                  │ g_main_1:                                        │
     │ }                                                    │             │         storel %t_1, %t_2                                                    │   pushq %rbp                                     │
     │                                                      │             │         %t_3 =l add %t_0, 8                                                  │   movq %rsp, %rbp                                │
-    │                                                      │             │         storew 0, %t_3                                                       │   pushq %rbx                                     │
-    │                                                      │             │         %t_4 =l add %t_0, 12                                                 │   pushq %r12                                     │
-    │                                                      │             │         storew 6, %t_4                                                       │   movl $16, %edi                                 │
-    │                                                      │             │         %t_5 =l add %t_1, 0                                                  │   callq malloc                                   │
-    │                                                      │             │         storel 1, %t_5                                                       │   movq %rax, %r12                                │
-    │                                                      │             │         %t_6 =l add %t_1, 8                                                  │   movl $48, %edi                                 │
-    │                                                      │             │         storel 2, %t_6                                                       │   callq malloc                                   │
-    │                                                      │             │         %t_7 =l add %t_1, 16                                                 │   movq %rax, (%r12)                              │
-    │                                                      │             │         storel 3, %t_7                                                       │   movl $0, 8(%r12)                               │
-    │                                                      │             │         %t_8 =l add %t_1, 24                                                 │   movl $6, 12(%r12)                              │
-    │                                                      │             │         storel 4, %t_8                                                       │   movq $1, (%rax)                                │
-    │                                                      │             │         %t_9 =l add %t_1, 32                                                 │   movq $2, 8(%rax)                               │
-    │                                                      │             │         storel 5, %t_9                                                       │   movq $3, 16(%rax)                              │
-    │                                                      │             │         %t_10 =l add %t_1, 40                                                │   movq $4, 24(%rax)                              │
-    │                                                      │             │         storel 6, %t_10                                                      │   movq $5, 32(%rax)                              │
-    │                                                      │             │         %l_my_array_0 =l copy %t_0                                           │   movq $6, 40(%rax)                              │
-    │                                                      │             │         %t_11 =l add %l_my_array_0, 12                                       │   movl 12(%r12), %eax                            │
-    │                                                      │             │         %t_12 =l loaduw %t_11                                                │   cmpq $2, %rax                                  │
-    │                                                      │             │         %t_13 =w csgel 2, 0                                                  │   setg %cl                                       │
-    │                                                      │             │         %t_14 =w csltl 2, %t_12                                              │   movzbl %cl, %ecx                               │
-    │                                                      │             │         %t_15 =w mul %t_13, %t_14                                            │   imull $1, %ecx, %ecx                           │
-    │                                                      │             │         jnz %t_15, @b_good_index_17, @b_bad_index_16                         │   cmpl $0, %ecx                                  │
-    │                                                      │             │                                                                              │   jnz .Lbb4                                      │
-    │                                                      │             │ @b_bad_index_16                                                              │   movl $31, %ecx                                 │
-    │                                                      │             │         call $panic_index_out_of_bounds(w 9, w 30, w 9, w 31)                │   movl $9, %edx                                  │
-    │                                                      │             │         hlt                                                                  │   movl $30, %esi                                 │
-    │                                                      │             │                                                                              │   movl $9, %edi                                  │
-    │                                                      │             │ @b_good_index_17                                                             │   callq panic_index_out_of_bounds                │
-    │                                                      │             │         %t_18 =l add %l_my_array_0, 12                                       │   ud2                                            │
-    │                                                      │             │         %t_19 =l loaduw %t_18                                                │ .Lbb4:                                           │
-    │                                                      │             │         %t_20 =w csgel 4, 0                                                  │   cmpq $4, %rax                                  │
-    │                                                      │             │         %t_21 =w csltl 4, %t_19                                              │   setg %al                                       │
-    │                                                      │             │         %t_22 =w mul %t_20, %t_21                                            │   movzbl %al, %eax                               │
-    │                                                      │             │         jnz %t_22, @b_good_index_24, @b_bad_index_23                         │   imull $1, %eax, %eax                           │
-    │                                                      │             │                                                                              │   cmpl $0, %eax                                  │
-    │                                                      │             │ @b_bad_index_23                                                              │   jnz .Lbb6                                      │
-    │                                                      │             │         call $panic_index_out_of_bounds(w 9, w 33, w 9, w 34)                │   movl $34, %ecx                                 │
-    │                                                      │             │         hlt                                                                  │   movl $9, %edx                                  │
-    │                                                      │             │                                                                              │   movl $33, %esi                                 │
-    │                                                      │             │ @b_good_index_24                                                             │   movl $9, %edi                                  │
-    │                                                      │             │         %t_25 =w cslel 2, 4                                                  │   callq panic_index_out_of_bounds                │
-    │                                                      │             │         jnz %t_25, @b_assert_ok_26, @b_assert_fail_27                        │   ud2                                            │
-    │                                                      │             │                                                                              │ .Lbb6:                                           │
-    │                                                      │             │ @b_assert_ok_26                                                              │   movl $16, %edi                                 │
-    │                                                      │             │         %t_28 =l call $malloc(l 16)                                          │   callq malloc                                   │
-    │                                                      │             │         %t_29 =l add %l_my_array_0, 0                                        │   movq %rax, %rbx                                │
-    │                                                      │             │         %t_30 =l loadl %t_29                                                 │   movq (%r12), %rax                              │
-    │                                                      │             │         %t_31 =l add %l_my_array_0, 8                                        │   movl 8(%r12), %ecx                             │
-    │                                                      │             │         %t_32 =w loadw %t_31                                                 │   addl $2, %ecx                                  │
-    │                                                      │             │         %t_33 =w add 2, %t_32                                                │   movq %rax, (%rbx)                              │
-    │                                                      │             │         %t_34 =w sub 4, 2                                                    │   movl %ecx, 8(%rbx)                             │
-    │                                                      │             │         %t_35 =w add %t_34, 0                                                │   movl $2, 12(%rbx)                              │
-    │                                                      │             │         %t_36 =l add %t_28, 0                                                │   movl %ecx, %ecx                                │
-    │                                                      │             │         storel %t_30, %t_36                                                  │   addq $0, %rcx                                  │
-    │                                                      │             │         %t_37 =l add %t_28, 8                                                │   movq (%rax, %rcx, 8), %rdi                     │
-    │                                                      │             │         storew %t_33, %t_37                                                  │   callq g_Std_Int_println_0                      │
-    │                                                      │             │         %t_38 =l add %t_28, 12                                               │   movl 12(%rbx), %eax                            │
-    │                                                      │             │         storew %t_35, %t_38                                                  │   cmpq $1, %rax                                  │
-    │                                                      │             │         %l_my_sub_array_1 =l copy %t_28                                      │   setg %al                                       │
-    │                                                      │             │         %t_39 =l add %l_my_sub_array_1, 12                                   │   movzbl %al, %eax                               │
-    │                                                      │             │         %t_40 =l loaduw %t_39                                                │   imull $1, %eax, %eax                           │
-    │                                                      │             │         %t_41 =w csgel 0, 0                                                  │   cmpl $0, %eax                                  │
-    │                                                      │             │         %t_42 =w csltl 0, %t_40                                              │   jnz .Lbb9                                      │
-    │                                                      │             │         %t_43 =w mul %t_41, %t_42                                            │   movl $32, %ecx                                 │
-    │                                                      │             │         jnz %t_43, @b_good_index_45, @b_bad_index_44                         │   movl $11, %edx                                 │
-    │                                                      │             │                                                                              │   movl $31, %esi                                 │
-    │                                                      │             │ @b_assert_fail_27                                                            │   movl $11, %edi                                 │
-    │                                                      │             │         call $panic_subrange_invalid(w 9, w 33, w 9, w 34)                   │   callq panic_index_out_of_bounds                │
-    │                                                      │             │         hlt                                                                  │   ud2                                            │
-    │                                                      │             │                                                                              │ .Lbb9:                                           │
-    │                                                      │             │ @b_bad_index_44                                                              │   movq (%rbx), %rax                              │
-    │                                                      │             │         call $panic_index_out_of_bounds(w 10, w 31, w 10, w 32)              │   movl 8(%rbx), %ecx                             │
-    │                                                      │             │         hlt                                                                  │   addq $1, %rcx                                  │
-    │                                                      │             │                                                                              │   movq (%rax, %rcx, 8), %rdi                     │
-    │                                                      │             │ @b_good_index_45                                                             │   callq g_Std_Int_println_0                      │
-    │                                                      │             │         %t_46 =l loadl %l_my_sub_array_1                                     │   movl 12(%rbx), %eax                            │
-    │                                                      │             │         %t_47 =l add %l_my_sub_array_1, 8                                    │   cmpq $2, %rax                                  │
-    │                                                      │             │         %t_48 =l loaduw %t_47                                                │   setg %al                                       │
-    │                                                      │             │         %t_49 =l add 0, %t_48                                                │   movzbl %al, %eax                               │
-    │                                                      │             │         %t_50 =l mul %t_49, 8                                                │   imull $1, %eax, %eax                           │
-    │                                                      │             │         %t_51 =l add %t_46, %t_50                                            │   cmpl $0, %eax                                  │
-    │                                                      │             │         %t_52 =l loadl %t_51                                                 │   jnz .Lbb11                                     │
-    │                                                      │             │         %t_53 =w call $g_Std_Int_println_0(l %t_52)                          │   movl $32, %ecx                                 │
-    │                                                      │             │         %t_54 =l add %l_my_sub_array_1, 12                                   │   movl $12, %edx                                 │
-    │                                                      │             │         %t_55 =l loaduw %t_54                                                │   movl $31, %esi                                 │
-    │                                                      │             │         %t_56 =w csgel 1, 0                                                  │   movl $12, %edi                                 │
-    │                                                      │             │         %t_57 =w csltl 1, %t_55                                              │   callq panic_index_out_of_bounds                │
-    │                                                      │             │         %t_58 =w mul %t_56, %t_57                                            │   ud2                                            │
-    │                                                      │             │         jnz %t_58, @b_good_index_60, @b_bad_index_59                         │ .Lbb11:                                          │
+    │                                                      │             │         storew 0, %t_3                                                       │   subq $8, %rsp                                  │
+    │                                                      │             │         %t_4 =l add %t_0, 12                                                 │   pushq %rbx                                     │
+    │                                                      │             │         storew 6, %t_4                                                       │   pushq %r12                                     │
+    │                                                      │             │         %t_5 =l add %t_1, 0                                                  │   pushq %r13                                     │
+    │                                                      │             │         storel 1, %t_5                                                       │   movl $16, %edi                                 │
+    │                                                      │             │         %t_6 =l add %t_1, 8                                                  │   callq malloc                                   │
+    │                                                      │             │         storel 2, %t_6                                                       │   movq %rax, %rbx                                │
+    │                                                      │             │         %t_7 =l add %t_1, 16                                                 │   movl $48, %edi                                 │
+    │                                                      │             │         storel 3, %t_7                                                       │   callq malloc                                   │
+    │                                                      │             │         %t_8 =l add %t_1, 24                                                 │   movq %rax, (%rbx)                              │
+    │                                                      │             │         storel 4, %t_8                                                       │   movl $0, 8(%rbx)                               │
+    │                                                      │             │         %t_9 =l add %t_1, 32                                                 │   movl $6, 12(%rbx)                              │
+    │                                                      │             │         storel 5, %t_9                                                       │   movq $1, (%rax)                                │
+    │                                                      │             │         %t_10 =l add %t_1, 40                                                │   movq $2, 8(%rax)                               │
+    │                                                      │             │         storel 6, %t_10                                                      │   movq $3, 16(%rax)                              │
+    │                                                      │             │         %l_my_array_0 =l copy %t_0                                           │   movq $4, 24(%rax)                              │
+    │                                                      │             │         %t_11 =l add %l_my_array_0, 12                                       │   movq $5, 32(%rax)                              │
+    │                                                      │             │         %t_12 =l loaduw %t_11                                                │   movq $6, 40(%rax)                              │
+    │                                                      │             │         %t_13 =w csgel 2, 0                                                  │   movl 12(%rbx), %eax                            │
+    │                                                      │             │         %t_14 =w csltl 2, %t_12                                              │   cmpq $2, %rax                                  │
+    │                                                      │             │         %t_15 =w mul %t_13, %t_14                                            │   setg %cl                                       │
+    │                                                      │             │         jnz %t_15, @b_good_index_17, @b_bad_index_16                         │   movzbl %cl, %ecx                               │
+    │                                                      │             │                                                                              │   imull $1, %ecx, %ecx                           │
+    │                                                      │             │ @b_bad_index_16                                                              │   cmpl $0, %ecx                                  │
+    │                                                      │             │         call $panic_index_out_of_bounds(w 9, w 30, w 9, w 31)                │   jnz .Lbb4                                      │
+    │                                                      │             │         hlt                                                                  │   movl $31, %ecx                                 │
+    │                                                      │             │                                                                              │   movl $9, %edx                                  │
+    │                                                      │             │ @b_good_index_17                                                             │   movl $30, %esi                                 │
+    │                                                      │             │         %t_18 =l add %l_my_array_0, 12                                       │   movl $9, %edi                                  │
+    │                                                      │             │         %t_19 =l loaduw %t_18                                                │   callq panic_index_out_of_bounds                │
+    │                                                      │             │         %t_20 =w csgel 4, 0                                                  │   ud2                                            │
+    │                                                      │             │         %t_21 =w csltl 4, %t_19                                              │ .Lbb4:                                           │
+    │                                                      │             │         %t_22 =w mul %t_20, %t_21                                            │   cmpq $4, %rax                                  │
+    │                                                      │             │         jnz %t_22, @b_good_index_24, @b_bad_index_23                         │   setg %al                                       │
+    │                                                      │             │                                                                              │   movzbl %al, %eax                               │
+    │                                                      │             │ @b_bad_index_23                                                              │   imull $1, %eax, %eax                           │
+    │                                                      │             │         call $panic_index_out_of_bounds(w 9, w 33, w 9, w 34)                │   cmpl $0, %eax                                  │
+    │                                                      │             │         hlt                                                                  │   jnz .Lbb6                                      │
+    │                                                      │             │                                                                              │   movl $34, %ecx                                 │
+    │                                                      │             │ @b_good_index_24                                                             │   movl $9, %edx                                  │
+    │                                                      │             │         %t_25 =w cslel 2, 4                                                  │   movl $33, %esi                                 │
+    │                                                      │             │         jnz %t_25, @b_assert_ok_26, @b_assert_fail_27                        │   movl $9, %edi                                  │
+    │                                                      │             │                                                                              │   callq panic_index_out_of_bounds                │
+    │                                                      │             │ @b_assert_ok_26                                                              │   ud2                                            │
+    │                                                      │             │         %t_28 =l add %l_my_array_0, 0                                        │ .Lbb6:                                           │
+    │                                                      │             │         %t_29 =l loadl %t_28                                                 │   movq (%rbx), %r12                              │
+    │                                                      │             │         %t_30 =l add %l_my_array_0, 8                                        │   movl 8(%rbx), %eax                             │
+    │                                                      │             │         %t_31 =w loadw %t_30                                                 │   movl $2, %r13d                                 │
+    │                                                      │             │         %t_32 =w add 2, %t_31                                                │   addl %eax, %r13d                               │
+    │                                                      │             │         %t_33 =w sub 4, 2                                                    │   movl $16, %edi                                 │
+    │                                                      │             │         %t_34 =w add %t_33, 1                                                │   callq malloc                                   │
+    │                                                      │             │         %t_35 =l call $malloc(l 16)                                          │   movq %rax, %rbx                                │
+    │                                                      │             │         %t_36 =l add %t_35, 0                                                │   movq %r12, (%rbx)                              │
+    │                                                      │             │         storel %t_29, %t_36                                                  │   movl %r13d, 8(%rbx)                            │
+    │                                                      │             │         %t_37 =l add %t_35, 8                                                │   movl $3, 12(%rbx)                              │
+    │                                                      │             │         storew %t_32, %t_37                                                  │   movl %r13d, %eax                               │
+    │                                                      │             │         %t_38 =l add %t_35, 12                                               │   addq $0, %rax                                  │
+    │                                                      │             │         storew %t_34, %t_38                                                  │   movq (%r12, %rax, 8), %rdi                     │
+    │                                                      │             │         %l_my_sub_array_1 =l copy %t_35                                      │   callq g_Std_Int_println_0                      │
+    │                                                      │             │         %t_39 =l add %l_my_sub_array_1, 12                                   │   movl 12(%rbx), %eax                            │
+    │                                                      │             │         %t_40 =l loaduw %t_39                                                │   cmpq $1, %rax                                  │
+    │                                                      │             │         %t_41 =w csgel 0, 0                                                  │   setg %al                                       │
+    │                                                      │             │         %t_42 =w csltl 0, %t_40                                              │   movzbl %al, %eax                               │
+    │                                                      │             │         %t_43 =w mul %t_41, %t_42                                            │   imull $1, %eax, %eax                           │
+    │                                                      │             │         jnz %t_43, @b_good_index_45, @b_bad_index_44                         │   cmpl $0, %eax                                  │
+    │                                                      │             │                                                                              │   jnz .Lbb9                                      │
+    │                                                      │             │ @b_assert_fail_27                                                            │   movl $32, %ecx                                 │
+    │                                                      │             │         call $panic_subrange_invalid(w 9, w 33, w 9, w 34)                   │   movl $11, %edx                                 │
+    │                                                      │             │         hlt                                                                  │   movl $31, %esi                                 │
+    │                                                      │             │                                                                              │   movl $11, %edi                                 │
+    │                                                      │             │ @b_bad_index_44                                                              │   callq panic_index_out_of_bounds                │
+    │                                                      │             │         call $panic_index_out_of_bounds(w 10, w 31, w 10, w 32)              │   ud2                                            │
+    │                                                      │             │         hlt                                                                  │ .Lbb9:                                           │
     │                                                      │             │                                                                              │   movq (%rbx), %rax                              │
-    │                                                      │             │ @b_bad_index_59                                                              │   movl 8(%rbx), %ecx                             │
-    │                                                      │             │         call $panic_index_out_of_bounds(w 11, w 31, w 11, w 32)              │   addq $2, %rcx                                  │
+    │                                                      │             │ @b_good_index_45                                                             │   movl 8(%rbx), %ecx                             │
+    │                                                      │             │         %t_46 =l add %l_my_sub_array_1, 0                                    │   addq $1, %rcx                                  │
+    │                                                      │             │         %t_47 =l loadl %t_46                                                 │   movq (%rax, %rcx, 8), %rdi                     │
+    │                                                      │             │         %t_48 =l add %l_my_sub_array_1, 8                                    │   callq g_Std_Int_println_0                      │
+    │                                                      │             │         %t_49 =l loaduw %t_48                                                │   movl 12(%rbx), %eax                            │
+    │                                                      │             │         %t_50 =l add 0, %t_49                                                │   cmpq $2, %rax                                  │
+    │                                                      │             │         %t_51 =l mul %t_50, 8                                                │   setg %al                                       │
+    │                                                      │             │         %t_52 =l add %t_47, %t_51                                            │   movzbl %al, %eax                               │
+    │                                                      │             │         %t_53 =l loadl %t_52                                                 │   imull $1, %eax, %eax                           │
+    │                                                      │             │         %t_54 =w call $g_Std_Int_println_0(l %t_53)                          │   cmpl $0, %eax                                  │
+    │                                                      │             │         %t_55 =l add %l_my_sub_array_1, 12                                   │   jnz .Lbb11                                     │
+    │                                                      │             │         %t_56 =l loaduw %t_55                                                │   movl $32, %ecx                                 │
+    │                                                      │             │         %t_57 =w csgel 1, 0                                                  │   movl $12, %edx                                 │
+    │                                                      │             │         %t_58 =w csltl 1, %t_56                                              │   movl $31, %esi                                 │
+    │                                                      │             │         %t_59 =w mul %t_57, %t_58                                            │   movl $12, %edi                                 │
+    │                                                      │             │         jnz %t_59, @b_good_index_61, @b_bad_index_60                         │   callq panic_index_out_of_bounds                │
+    │                                                      │             │                                                                              │   ud2                                            │
+    │                                                      │             │ @b_bad_index_60                                                              │ .Lbb11:                                          │
+    │                                                      │             │         call $panic_index_out_of_bounds(w 11, w 31, w 11, w 32)              │   movq (%rbx), %rax                              │
+    │                                                      │             │         hlt                                                                  │   movl 8(%rbx), %ecx                             │
+    │                                                      │             │                                                                              │   addq $2, %rcx                                  │
+    │                                                      │             │ @b_good_index_61                                                             │   movq (%rax, %rcx, 8), %rdi                     │
+    │                                                      │             │         %t_62 =l add %l_my_sub_array_1, 0                                    │   callq g_Std_Int_println_0                      │
+    │                                                      │             │         %t_63 =l loadl %t_62                                                 │   movl 12(%rbx), %eax                            │
+    │                                                      │             │         %t_64 =l add %l_my_sub_array_1, 8                                    │   cmpq $3, %rax                                  │
+    │                                                      │             │         %t_65 =l loaduw %t_64                                                │   setg %al                                       │
+    │                                                      │             │         %t_66 =l add 1, %t_65                                                │   movzbl %al, %eax                               │
+    │                                                      │             │         %t_67 =l mul %t_66, 8                                                │   imull $1, %eax, %eax                           │
+    │                                                      │             │         %t_68 =l add %t_63, %t_67                                            │   cmpl $0, %eax                                  │
+    │                                                      │             │         %t_69 =l loadl %t_68                                                 │   jnz .Lbb13                                     │
+    │                                                      │             │         %t_70 =w call $g_Std_Int_println_0(l %t_69)                          │   movl $32, %ecx                                 │
+    │                                                      │             │         %t_71 =l add %l_my_sub_array_1, 12                                   │   movl $13, %edx                                 │
+    │                                                      │             │         %t_72 =l loaduw %t_71                                                │   movl $31, %esi                                 │
+    │                                                      │             │         %t_73 =w csgel 2, 0                                                  │   movl $13, %edi                                 │
+    │                                                      │             │         %t_74 =w csltl 2, %t_72                                              │   callq panic_index_out_of_bounds                │
+    │                                                      │             │         %t_75 =w mul %t_73, %t_74                                            │   ud2                                            │
+    │                                                      │             │         jnz %t_75, @b_good_index_77, @b_bad_index_76                         │ .Lbb13:                                          │
+    │                                                      │             │                                                                              │   movq (%rbx), %rax                              │
+    │                                                      │             │ @b_bad_index_76                                                              │   movl 8(%rbx), %ecx                             │
+    │                                                      │             │         call $panic_index_out_of_bounds(w 12, w 31, w 12, w 32)              │   addq $3, %rcx                                  │
     │                                                      │             │         hlt                                                                  │   movq (%rax, %rcx, 8), %rdi                     │
     │                                                      │             │                                                                              │   callq g_Std_Int_println_0                      │
-    │                                                      │             │ @b_good_index_60                                                             │   movl 12(%rbx), %eax                            │
-    │                                                      │             │         %t_61 =l loadl %l_my_sub_array_1                                     │   cmpq $3, %rax                                  │
-    │                                                      │             │         %t_62 =l add %l_my_sub_array_1, 8                                    │   setg %al                                       │
-    │                                                      │             │         %t_63 =l loaduw %t_62                                                │   movzbl %al, %eax                               │
-    │                                                      │             │         %t_64 =l add 1, %t_63                                                │   imull $1, %eax, %eax                           │
-    │                                                      │             │         %t_65 =l mul %t_64, 8                                                │   cmpl $0, %eax                                  │
-    │                                                      │             │         %t_66 =l add %t_61, %t_65                                            │   jnz .Lbb13                                     │
-    │                                                      │             │         %t_67 =l loadl %t_66                                                 │   movl $32, %ecx                                 │
-    │                                                      │             │         %t_68 =w call $g_Std_Int_println_0(l %t_67)                          │   movl $13, %edx                                 │
-    │                                                      │             │         %t_69 =l add %l_my_sub_array_1, 12                                   │   movl $31, %esi                                 │
-    │                                                      │             │         %t_70 =l loaduw %t_69                                                │   movl $13, %edi                                 │
-    │                                                      │             │         %t_71 =w csgel 2, 0                                                  │   callq panic_index_out_of_bounds                │
-    │                                                      │             │         %t_72 =w csltl 2, %t_70                                              │   ud2                                            │
-    │                                                      │             │         %t_73 =w mul %t_71, %t_72                                            │ .Lbb13:                                          │
-    │                                                      │             │         jnz %t_73, @b_good_index_75, @b_bad_index_74                         │   movq (%rbx), %rax                              │
-    │                                                      │             │                                                                              │   movl 8(%rbx), %ecx                             │
-    │                                                      │             │ @b_bad_index_74                                                              │   addq $3, %rcx                                  │
-    │                                                      │             │         call $panic_index_out_of_bounds(w 12, w 31, w 12, w 32)              │   movq (%rax, %rcx, 8), %rdi                     │
-    │                                                      │             │         hlt                                                                  │   callq g_Std_Int_println_0                      │
-    │                                                      │             │                                                                              │   popq %r12                                      │
-    │                                                      │             │ @b_good_index_75                                                             │   popq %rbx                                      │
-    │                                                      │             │         %t_76 =l loadl %l_my_sub_array_1                                     │   leave                                          │
-    │                                                      │             │         %t_77 =l add %l_my_sub_array_1, 8                                    │   ret                                            │
-    │                                                      │             │         %t_78 =l loaduw %t_77                                                │ .type g_main_1, @function                        │
-    │                                                      │             │         %t_79 =l add 2, %t_78                                                │ .size g_main_1, .-g_main_1                       │
-    │                                                      │             │         %t_80 =l mul %t_79, 8                                                │ /* end function g_main_1 */                      │
-    │                                                      │             │         %t_81 =l add %t_76, %t_80                                            │                                                  │
-    │                                                      │             │         %t_82 =l loadl %t_81                                                 │ .section .note.GNU-stack,"",@progbits            │
-    │                                                      │             │         %t_83 =w call $g_Std_Int_println_0(l %t_82)                          │                                                  │
-    │                                                      │             │         %t_84 =l add %l_my_sub_array_1, 12                                   │                                                  │
-    │                                                      │             │         %t_85 =l loaduw %t_84                                                │                                                  │
-    │                                                      │             │         %t_86 =w csgel 3, 0                                                  │                                                  │
-    │                                                      │             │         %t_87 =w csltl 3, %t_85                                              │                                                  │
-    │                                                      │             │         %t_88 =w mul %t_86, %t_87                                            │                                                  │
-    │                                                      │             │         jnz %t_88, @b_good_index_90, @b_bad_index_89                         │                                                  │
+    │                                                      │             │ @b_good_index_77                                                             │   popq %r13                                      │
+    │                                                      │             │         %t_78 =l add %l_my_sub_array_1, 0                                    │   popq %r12                                      │
+    │                                                      │             │         %t_79 =l loadl %t_78                                                 │   popq %rbx                                      │
+    │                                                      │             │         %t_80 =l add %l_my_sub_array_1, 8                                    │   leave                                          │
+    │                                                      │             │         %t_81 =l loaduw %t_80                                                │   ret                                            │
+    │                                                      │             │         %t_82 =l add 2, %t_81                                                │ .type g_main_1, @function                        │
+    │                                                      │             │         %t_83 =l mul %t_82, 8                                                │ .size g_main_1, .-g_main_1                       │
+    │                                                      │             │         %t_84 =l add %t_79, %t_83                                            │ /* end function g_main_1 */                      │
+    │                                                      │             │         %t_85 =l loadl %t_84                                                 │                                                  │
+    │                                                      │             │         %t_86 =w call $g_Std_Int_println_0(l %t_85)                          │ .section .note.GNU-stack,"",@progbits            │
+    │                                                      │             │         %t_87 =l add %l_my_sub_array_1, 12                                   │                                                  │
+    │                                                      │             │         %t_88 =l loaduw %t_87                                                │                                                  │
+    │                                                      │             │         %t_89 =w csgel 3, 0                                                  │                                                  │
+    │                                                      │             │         %t_90 =w csltl 3, %t_88                                              │                                                  │
+    │                                                      │             │         %t_91 =w mul %t_89, %t_90                                            │                                                  │
+    │                                                      │             │         jnz %t_91, @b_good_index_93, @b_bad_index_92                         │                                                  │
     │                                                      │             │                                                                              │                                                  │
-    │                                                      │             │ @b_bad_index_89                                                              │                                                  │
+    │                                                      │             │ @b_bad_index_92                                                              │                                                  │
     │                                                      │             │         call $panic_index_out_of_bounds(w 13, w 31, w 13, w 32)              │                                                  │
     │                                                      │             │         hlt                                                                  │                                                  │
     │                                                      │             │                                                                              │                                                  │
-    │                                                      │             │ @b_good_index_90                                                             │                                                  │
-    │                                                      │             │         %t_91 =l loadl %l_my_sub_array_1                                     │                                                  │
-    │                                                      │             │         %t_92 =l add %l_my_sub_array_1, 8                                    │                                                  │
-    │                                                      │             │         %t_93 =l loaduw %t_92                                                │                                                  │
-    │                                                      │             │         %t_94 =l add 3, %t_93                                                │                                                  │
-    │                                                      │             │         %t_95 =l mul %t_94, 8                                                │                                                  │
-    │                                                      │             │         %t_96 =l add %t_91, %t_95                                            │                                                  │
-    │                                                      │             │         %t_97 =l loadl %t_96                                                 │                                                  │
-    │                                                      │             │         %t_98 =w call $g_Std_Int_println_0(l %t_97)                          │                                                  │
-    │                                                      │             │         ret %t_98                                                            │                                                  │
+    │                                                      │             │ @b_good_index_93                                                             │                                                  │
+    │                                                      │             │         %t_94 =l add %l_my_sub_array_1, 0                                    │                                                  │
+    │                                                      │             │         %t_95 =l loadl %t_94                                                 │                                                  │
+    │                                                      │             │         %t_96 =l add %l_my_sub_array_1, 8                                    │                                                  │
+    │                                                      │             │         %t_97 =l loaduw %t_96                                                │                                                  │
+    │                                                      │             │         %t_98 =l add 3, %t_97                                                │                                                  │
+    │                                                      │             │         %t_99 =l mul %t_98, 8                                                │                                                  │
+    │                                                      │             │         %t_100 =l add %t_95, %t_99                                           │                                                  │
+    │                                                      │             │         %t_101 =l loadl %t_100                                               │                                                  │
+    │                                                      │             │         %t_102 =w call $g_Std_Int_println_0(l %t_101)                        │                                                  │
+    │                                                      │             │         ret %t_102                                                           │                                                  │
     │                                                      │             │                                                                              │                                                  │
     │                                                      │             │ }                                                                            │                                                  │
     │                                                      │             │                                                                              │                                                  │
@@ -1328,71 +1363,262 @@ let%expect_test "qbe compiler generated code on sample programs" =
     │     new [3 + 3]int(5);                               │             │ {                                                                            │ g_intArray_0:                                    │
     │ }                                                    │             │ @start                                                                       │   pushq %rbp                                     │
     │                                                      │             │         %t_0 =l add 3, 3                                                     │   movq %rsp, %rbp                                │
-    │                                                      │             │         %t_1 =l copy %t_0                                                    │   subq $8, %rsp                                  │
-    │                                                      │             │         %t_2 =l call $malloc(l 16)                                           │   pushq %rbx                                     │
-    │                                                      │             │         %t_3 =l mul %t_0, 8                                                  │   movl $16, %edi                                 │
-    │                                                      │             │         %t_4 =l call $malloc(l %t_3)                                         │   callq malloc                                   │
-    │                                                      │             │         %t_5 =l add %t_2, 0                                                  │   movq %rax, %rbx                                │
-    │                                                      │             │         storel %t_4, %t_5                                                    │   movl $48, %edi                                 │
-    │                                                      │             │         %t_6 =l add %t_2, 8                                                  │   callq malloc                                   │
-    │                                                      │             │         storew 0, %t_6                                                       │   movq %rax, %rcx                                │
-    │                                                      │             │         %t_7 =l add %t_2, 12                                                 │   movq %rbx, %rax                                │
-    │                                                      │             │         storew %t_0, %t_7                                                    │   movq %rcx, (%rax)                              │
-    │                                                      │             │         jmp @b_array_init_loop_begin_8                                       │   movl $0, 8(%rax)                               │
-    │                                                      │             │                                                                              │   movl $6, 12(%rax)                              │
-    │                                                      │             │ @b_array_init_loop_begin_8                                                   │   movq %rax, %rbx                                │
-    │                                                      │             │         %t_10 =l add %t_4, 0                                                 │   movq %rcx, %rax                                │
-    │                                                      │             │         storel 5, %t_10                                                      │   movl $6, %ecx                                  │
-    │                                                      │             │         %t_4 =l add %t_4, 8                                                  │ .Lbb2:                                           │
-    │                                                      │             │         %t_1 =l sub %t_1, 1                                                  │   movq $5, (%rax)                                │
-    │                                                      │             │         jnz %t_1, @b_array_init_loop_begin_8, @b_array_init_loop_exit_9      │   addq $8, %rax                                  │
-    │                                                      │             │                                                                              │   subq $1, %rcx                                  │
-    │                                                      │             │ @b_array_init_loop_exit_9                                                    │   jnz .Lbb2                                      │
-    │                                                      │             │         ret %t_2                                                             │   movq %rbx, %rax                                │
-    │                                                      │             │                                                                              │   popq %rbx                                      │
-    │                                                      │             │ }                                                                            │   leave                                          │
-    │                                                      │             │                                                                              │   ret                                            │
+    │                                                      │             │         %t_1 =w csltl %t_0, 0                                                │   subq $8, %rsp                                  │
+    │                                                      │             │         jnz %t_1, @b_negative_array_size_2, @b_non_negative_array_size_3     │   pushq %rbx                                     │
+    │                                                      │             │                                                                              │   movl $48, %edi                                 │
+    │                                                      │             │ @b_negative_array_size_2                                                     │   callq malloc                                   │
+    │                                                      │             │         call $panic_cannot_allocate_negative_array_size(w 2, w 9, w 2, w     │   movq %rax, %rbx                                │
+    │                                                      │             │ 14)                                                                          │   movl $16, %edi                                 │
+    │                                                      │             │         hlt                                                                  │   callq malloc                                   │
+    │                                                      │             │                                                                              │   movq %rax, %rcx                                │
+    │                                                      │             │ @b_non_negative_array_size_3                                                 │   movq %rbx, (%rcx)                              │
+    │                                                      │             │         jnz %t_0, @b_positive_array_size_5, @b_zero_array_size_4             │   movl $0, 8(%rcx)                               │
+    │                                                      │             │                                                                              │   movl $6, 12(%rcx)                              │
+    │                                                      │             │ @b_zero_array_size_4                                                         │   movl $6, %eax                                  │
+    │                                                      │             │         %t_8 =l call $malloc(l 16)                                           │ .Lbb3:                                           │
+    │                                                      │             │         %t_9 =l add %t_8, 0                                                  │   movq $5, (%rbx)                                │
+    │                                                      │             │         storel 0, %t_9                                                       │   addq $8, %rbx                                  │
+    │                                                      │             │         %t_10 =l add %t_8, 8                                                 │   subq $1, %rax                                  │
+    │                                                      │             │         storew 0, %t_10                                                      │   jnz .Lbb3                                      │
+    │                                                      │             │         %t_11 =l add %t_8, 12                                                │   movq %rcx, %rax                                │
+    │                                                      │             │         storew 0, %t_11                                                      │   popq %rbx                                      │
+    │                                                      │             │         %t_7 =l copy %t_8                                                    │   leave                                          │
+    │                                                      │             │         jmp @b_init_loop_exit_6                                              │   ret                                            │
     │                                                      │             │                                                                              │ .type g_intArray_0, @function                    │
-    │                                                      │             │                                                                              │ .size g_intArray_0, .-g_intArray_0               │
-    │                                                      │             │                                                                              │ /* end function g_intArray_0 */                  │
+    │                                                      │             │ @b_positive_array_size_5                                                     │ .size g_intArray_0, .-g_intArray_0               │
+    │                                                      │             │         %t_12 =l copy %t_0                                                   │ /* end function g_intArray_0 */                  │
+    │                                                      │             │         %t_13 =l mul %t_0, 8                                                 │                                                  │
+    │                                                      │             │         %t_14 =l call $malloc(l %t_13)                                       │ .section .note.GNU-stack,"",@progbits            │
+    │                                                      │             │         %t_15 =l call $malloc(l 16)                                          │                                                  │
+    │                                                      │             │         %t_16 =l add %t_15, 0                                                │                                                  │
+    │                                                      │             │         storel %t_14, %t_16                                                  │                                                  │
+    │                                                      │             │         %t_17 =l add %t_15, 8                                                │                                                  │
+    │                                                      │             │         storew 0, %t_17                                                      │                                                  │
+    │                                                      │             │         %t_18 =l add %t_15, 12                                               │                                                  │
+    │                                                      │             │         storew %t_0, %t_18                                                   │                                                  │
+    │                                                      │             │         jmp @b_array_init_loop_begin_19                                      │                                                  │
     │                                                      │             │                                                                              │                                                  │
-    │                                                      │             │                                                                              │ .section .note.GNU-stack,"",@progbits            │
+    │                                                      │             │ @b_init_loop_exit_6                                                          │                                                  │
+    │                                                      │             │         ret %t_7                                                             │                                                  │
+    │                                                      │             │                                                                              │                                                  │
+    │                                                      │             │ @b_array_init_loop_begin_19                                                  │                                                  │
+    │                                                      │             │         %t_21 =l add %t_14, 0                                                │                                                  │
+    │                                                      │             │         storel 5, %t_21                                                      │                                                  │
+    │                                                      │             │         %t_14 =l add %t_14, 8                                                │                                                  │
+    │                                                      │             │         %t_12 =l sub %t_12, 1                                                │                                                  │
+    │                                                      │             │         jnz %t_12, @b_array_init_loop_begin_19, @b_array_init_loop_exit_20   │                                                  │
+    │                                                      │             │                                                                              │                                                  │
+    │                                                      │             │ @b_array_init_loop_exit_20                                                   │                                                  │
+    │                                                      │             │         %t_7 =l copy %t_15                                                   │                                                  │
+    │                                                      │             │         jmp @b_init_loop_exit_6                                              │                                                  │
+    │                                                      │             │                                                                              │                                                  │
+    │                                                      │             │ }                                                                            │                                                  │
     │                                                      │             │                                                                              │                                                  │
     ├──────────────────────────────────────────────────────┼─────────────┼──────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────┤
     │ fun charArray(i : int): []mut char {                 │             │ function l $g_charArray_0(l %l_i_0, )                                        │ .text                                            │
     │     new [i]char('a');                                │             │ {                                                                            │ g_charArray_0:                                   │
     │ }                                                    │             │ @start                                                                       │   pushq %rbp                                     │
-    │                                                      │             │         %t_0 =l copy %l_i_0                                                  │   movq %rsp, %rbp                                │
-    │                                                      │             │         %t_1 =l call $malloc(l 16)                                           │   pushq %rbx                                     │
-    │                                                      │             │         %t_2 =l mul %l_i_0, 1                                                │   pushq %r12                                     │
-    │                                                      │             │         %t_3 =l call $malloc(l %t_2)                                         │   movq %rdi, %rbx                                │
-    │                                                      │             │         %t_4 =l add %t_1, 0                                                  │   movl $16, %edi                                 │
-    │                                                      │             │         storel %t_3, %t_4                                                    │   callq malloc                                   │
-    │                                                      │             │         %t_5 =l add %t_1, 8                                                  │   movq %rbx, %rdi                                │
-    │                                                      │             │         storew 0, %t_5                                                       │   movq %rax, %rbx                                │
-    │                                                      │             │         %t_6 =l add %t_1, 12                                                 │   movq %rdi, %r12                                │
-    │                                                      │             │         storew %l_i_0, %t_6                                                  │   callq malloc                                   │
-    │                                                      │             │         jmp @b_array_init_loop_begin_7                                       │   movq %r12, %rdi                                │
-    │                                                      │             │                                                                              │   movq %rax, %rcx                                │
-    │                                                      │             │ @b_array_init_loop_begin_7                                                   │   movq %rbx, %rax                                │
-    │                                                      │             │         %t_9 =l add %t_3, 0                                                  │   movq %rcx, (%rax)                              │
-    │                                                      │             │         storeb 97, %t_9                                                      │   movl $0, 8(%rax)                               │
-    │                                                      │             │         %t_3 =l add %t_3, 1                                                  │   movl %edi, 12(%rax)                            │
-    │                                                      │             │         %t_0 =l sub %t_0, 1                                                  │   movq %rax, %rbx                                │
-    │                                                      │             │         jnz %t_0, @b_array_init_loop_begin_7, @b_array_init_loop_exit_8      │   movq %rcx, %rax                                │
+    │                                                      │             │         %t_0 =w csltl %l_i_0, 0                                              │   movq %rsp, %rbp                                │
+    │                                                      │             │         jnz %t_0, @b_negative_array_size_1, @b_non_negative_array_size_2     │   pushq %rbx                                     │
+    │                                                      │             │                                                                              │   pushq %r12                                     │
+    │                                                      │             │ @b_negative_array_size_1                                                     │   cmpq $0, %rdi                                  │
+    │                                                      │             │         call $panic_cannot_allocate_negative_array_size(w 2, w 9, w 2, w     │   jl .Lbb6                                       │
+    │                                                      │             │ 10)                                                                          │   cmpl $0, %edi                                  │
+    │                                                      │             │         hlt                                                                  │   jnz .Lbb3                                      │
+    │                                                      │             │                                                                              │   movl $16, %edi                                 │
+    │                                                      │             │ @b_non_negative_array_size_2                                                 │   callq malloc                                   │
+    │                                                      │             │         jnz %l_i_0, @b_positive_array_size_4, @b_zero_array_size_3           │   movq $0, (%rax)                                │
+    │                                                      │             │                                                                              │   movl $0, 8(%rax)                               │
+    │                                                      │             │ @b_zero_array_size_3                                                         │   movl $0, 12(%rax)                              │
+    │                                                      │             │         %t_7 =l call $malloc(l 16)                                           │   jmp .Lbb5                                      │
+    │                                                      │             │         %t_8 =l add %t_7, 0                                                  │ .Lbb3:                                           │
+    │                                                      │             │         storel 0, %t_8                                                       │   movq %rdi, %rbx                                │
+    │                                                      │             │         %t_9 =l add %t_7, 8                                                  │   callq malloc                                   │
+    │                                                      │             │         storew 0, %t_9                                                       │   movq %rbx, %rdi                                │
+    │                                                      │             │         %t_10 =l add %t_7, 12                                                │   movq %rax, %rbx                                │
+    │                                                      │             │         storew 0, %t_10                                                      │   movq %rdi, %r12                                │
+    │                                                      │             │         %t_6 =l copy %t_7                                                    │   movl $16, %edi                                 │
+    │                                                      │             │         jmp @b_init_loop_exit_5                                              │   callq malloc                                   │
+    │                                                      │             │                                                                              │   movq %r12, %rdi                                │
+    │                                                      │             │ @b_positive_array_size_4                                                     │   movq %rbx, (%rax)                              │
+    │                                                      │             │         %t_11 =l copy %l_i_0                                                 │   movl $0, 8(%rax)                               │
+    │                                                      │             │         %t_12 =l mul %l_i_0, 1                                               │   movl %edi, 12(%rax)                            │
+    │                                                      │             │         %t_13 =l call $malloc(l %t_12)                                       │ .Lbb4:                                           │
+    │                                                      │             │         %t_14 =l call $malloc(l 16)                                          │   movb $97, (%rbx)                               │
+    │                                                      │             │         %t_15 =l add %t_14, 0                                                │   addq $1, %rbx                                  │
+    │                                                      │             │         storel %t_13, %t_15                                                  │   subq $1, %rdi                                  │
+    │                                                      │             │         %t_16 =l add %t_14, 8                                                │   jnz .Lbb4                                      │
+    │                                                      │             │         storew 0, %t_16                                                      │ .Lbb5:                                           │
+    │                                                      │             │         %t_17 =l add %t_14, 12                                               │   popq %r12                                      │
+    │                                                      │             │         storew %l_i_0, %t_17                                                 │   popq %rbx                                      │
+    │                                                      │             │         jmp @b_array_init_loop_begin_18                                      │   leave                                          │
+    │                                                      │             │                                                                              │   ret                                            │
+    │                                                      │             │ @b_init_loop_exit_5                                                          │ .Lbb6:                                           │
+    │                                                      │             │         ret %t_6                                                             │   movl $10, %ecx                                 │
+    │                                                      │             │                                                                              │   movl $2, %edx                                  │
+    │                                                      │             │ @b_array_init_loop_begin_18                                                  │   movl $9, %esi                                  │
+    │                                                      │             │         %t_20 =l add %t_13, 0                                                │   movl $2, %edi                                  │
+    │                                                      │             │         storeb 97, %t_20                                                     │   callq                                          │
+    │                                                      │             │         %t_13 =l add %t_13, 1                                                │ panic_cannot_allocate_negative_array_size        │
+    │                                                      │             │         %t_11 =l sub %t_11, 1                                                │   ud2                                            │
+    │                                                      │             │         jnz %t_11, @b_array_init_loop_begin_18, @b_array_init_loop_exit_19   │ .type g_charArray_0, @function                   │
+    │                                                      │             │                                                                              │ .size g_charArray_0, .-g_charArray_0             │
+    │                                                      │             │ @b_array_init_loop_exit_19                                                   │ /* end function g_charArray_0 */                 │
+    │                                                      │             │         %t_6 =l copy %t_14                                                   │                                                  │
+    │                                                      │             │         jmp @b_init_loop_exit_5                                              │ .section .note.GNU-stack,"",@progbits            │
+    │                                                      │             │                                                                              │                                                  │
+    │                                                      │             │ }                                                                            │                                                  │
+    │                                                      │             │                                                                              │                                                  │
+    ├──────────────────────────────────────────────────────┼─────────────┼──────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────┤
+    │   const x : int = 10;                                │ g_main_1    │ function l $g_main_1()                                                       │ .text                                            │
+    │                                                      │             │ {                                                                            │ g_main_1:                                        │
+    │   fun main(): int { x }                              │             │ @start                                                                       │   pushq %rbp                                     │
+    │                                                      │             │         ret 10                                                               │   movq %rsp, %rbp                                │
+    │                                                      │             │                                                                              │   movl $10, %eax                                 │
+    │                                                      │             │ }                                                                            │   leave                                          │
+    │                                                      │             │                                                                              │   ret                                            │
+    │                                                      │             │                                                                              │ .type g_main_1, @function                        │
+    │                                                      │             │                                                                              │ .size g_main_1, .-g_main_1                       │
+    │                                                      │             │                                                                              │ /* end function g_main_1 */                      │
+    │                                                      │             │                                                                              │                                                  │
+    │                                                      │             │                                                                              │ .section .note.GNU-stack,"",@progbits            │
+    │                                                      │             │                                                                              │                                                  │
+    ├──────────────────────────────────────────────────────┼─────────────┼──────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────┤
+    │   const dialog_options : [][]char =                  │ g_main_1    │ data $.static.2 = { l $.static.3, w 0, w 4, }                                │ .data                                            │
+    │   [ "Wait"                                           │             │ data $.static.3 = { b "Wait", }                                              │ .balign 8                                        │
+    │   , "Are our bodies really piles of dirt?"           │             │ data $.static.4 = { l $.static.5, w 0, w 36, }                               │ .static.2:                                       │
+    │   , "And is the soul just a metaphor?"               │             │ data $.static.5 = { b "Are our bodies really piles of dirt?", }              │   .quad .static.3+0                              │
+    │   , "I keep my head from looking too far up,"        │             │ data $.static.6 = { l $.static.7, w 0, w 32, }                               │   .int 0                                         │
+    │   , "I fear that there is a heaven above."           │             │ data $.static.7 = { b "And is the soul just a metaphor?", }                  │   .int 4                                         │
+    │     ];                                               │             │ data $.static.8 = { l $.static.9, w 0, w 39, }                               │ /* end data */                                   │
+    │                                                      │             │ data $.static.9 = { b "I keep my head from looking too far up,", }           │                                                  │
+    │   fun main(i: int): []char { dialog_options[i] }     │             │ data $.static.10 = { l $.static.11, w 0, w 36, }                             │ .data                                            │
+    │                                                      │             │ data $.static.11 = { b "I fear that there is a heaven above.", }             │ .balign 8                                        │
+    │                                                      │             │ data $g_dialog_options_0 = { l $.static.1, w 0, w 5, }                       │ .static.3:                                       │
+    │                                                      │             │ data $g_dialog_options_0 = { l $.static.2, l $.static.4, l $.static.6, l     │   .ascii "Wait"                                  │
+    │                                                      │             │ $.static.8, l $.static.10, }                                                 │ /* end data */                                   │
+    │                                                      │             │ function l $g_main_1(l %l_i_0, )                                             │                                                  │
+    │                                                      │             │ {                                                                            │ .data                                            │
+    │                                                      │             │ @start                                                                       │ .balign 8                                        │
+    │                                                      │             │         %t_0 =l add $g_dialog_options_0, 12                                  │ .static.4:                                       │
+    │                                                      │             │         %t_1 =l loaduw %t_0                                                  │   .quad .static.5+0                              │
+    │                                                      │             │         %t_2 =w csgel %l_i_0, 0                                              │   .int 0                                         │
+    │                                                      │             │         %t_3 =w csltl %l_i_0, %t_1                                           │   .int 36                                        │
+    │                                                      │             │         %t_4 =w mul %t_2, %t_3                                               │ /* end data */                                   │
+    │                                                      │             │         jnz %t_4, @b_good_index_6, @b_bad_index_5                            │                                                  │
+    │                                                      │             │                                                                              │ .data                                            │
+    │                                                      │             │ @b_bad_index_5                                                               │ .balign 8                                        │
+    │                                                      │             │         call $panic_index_out_of_bounds(w 9, w 44, w 9, w 45)                │ .static.5:                                       │
+    │                                                      │             │         hlt                                                                  │   .ascii "Are our bodies really piles of dirt?"  │
+    │                                                      │             │                                                                              │ /* end data */                                   │
+    │                                                      │             │ @b_good_index_6                                                              │                                                  │
+    │                                                      │             │         %t_7 =l add $g_dialog_options_0, 0                                   │ .data                                            │
+    │                                                      │             │         %t_8 =l loadl %t_7                                                   │ .balign 8                                        │
+    │                                                      │             │         %t_9 =l add $g_dialog_options_0, 8                                   │ .static.6:                                       │
+    │                                                      │             │         %t_10 =l loaduw %t_9                                                 │   .quad .static.7+0                              │
+    │                                                      │             │         %t_11 =l add %l_i_0, %t_10                                           │   .int 0                                         │
+    │                                                      │             │         %t_12 =l mul %t_11, 8                                                │   .int 32                                        │
+    │                                                      │             │         %t_13 =l add %t_8, %t_12                                             │ /* end data */                                   │
+    │                                                      │             │         %t_14 =l loadl %t_13                                                 │                                                  │
+    │                                                      │             │         ret %t_14                                                            │ .data                                            │
+    │                                                      │             │                                                                              │ .balign 8                                        │
+    │                                                      │             │ }                                                                            │ .static.7:                                       │
+    │                                                      │             │                                                                              │   .ascii "And is the soul just a metaphor?"      │
+    │                                                      │             │                                                                              │ /* end data */                                   │
+    │                                                      │             │                                                                              │                                                  │
+    │                                                      │             │                                                                              │ .data                                            │
+    │                                                      │             │                                                                              │ .balign 8                                        │
+    │                                                      │             │                                                                              │ .static.8:                                       │
+    │                                                      │             │                                                                              │   .quad .static.9+0                              │
+    │                                                      │             │                                                                              │   .int 0                                         │
+    │                                                      │             │                                                                              │   .int 39                                        │
+    │                                                      │             │                                                                              │ /* end data */                                   │
+    │                                                      │             │                                                                              │                                                  │
+    │                                                      │             │                                                                              │ .data                                            │
+    │                                                      │             │                                                                              │ .balign 8                                        │
+    │                                                      │             │                                                                              │ .static.9:                                       │
+    │                                                      │             │                                                                              │   .ascii "I keep my head from looking too far    │
+    │                                                      │             │                                                                              │ up,"                                             │
+    │                                                      │             │                                                                              │ /* end data */                                   │
+    │                                                      │             │                                                                              │                                                  │
+    │                                                      │             │                                                                              │ .data                                            │
+    │                                                      │             │                                                                              │ .balign 8                                        │
+    │                                                      │             │                                                                              │ .static.10:                                      │
+    │                                                      │             │                                                                              │   .quad .static.11+0                             │
+    │                                                      │             │                                                                              │   .int 0                                         │
+    │                                                      │             │                                                                              │   .int 36                                        │
+    │                                                      │             │                                                                              │ /* end data */                                   │
+    │                                                      │             │                                                                              │                                                  │
+    │                                                      │             │                                                                              │ .data                                            │
+    │                                                      │             │                                                                              │ .balign 8                                        │
+    │                                                      │             │                                                                              │ .static.11:                                      │
+    │                                                      │             │                                                                              │   .ascii "I fear that there is a heaven above."  │
+    │                                                      │             │                                                                              │ /* end data */                                   │
+    │                                                      │             │                                                                              │                                                  │
+    │                                                      │             │                                                                              │ .data                                            │
+    │                                                      │             │                                                                              │ .balign 8                                        │
+    │                                                      │             │                                                                              │ g_dialog_options_0:                              │
+    │                                                      │             │                                                                              │   .quad .static.1+0                              │
+    │                                                      │             │                                                                              │   .int 0                                         │
+    │                                                      │             │                                                                              │   .int 5                                         │
+    │                                                      │             │                                                                              │ /* end data */                                   │
+    │                                                      │             │                                                                              │                                                  │
+    │                                                      │             │                                                                              │ .data                                            │
+    │                                                      │             │                                                                              │ .balign 8                                        │
+    │                                                      │             │                                                                              │ g_dialog_options_0:                              │
+    │                                                      │             │                                                                              │   .quad .static.2+0                              │
+    │                                                      │             │                                                                              │   .quad .static.4+0                              │
+    │                                                      │             │                                                                              │   .quad .static.6+0                              │
+    │                                                      │             │                                                                              │   .quad .static.8+0                              │
+    │                                                      │             │                                                                              │   .quad .static.10+0                             │
+    │                                                      │             │                                                                              │ /* end data */                                   │
+    │                                                      │             │                                                                              │                                                  │
+    │                                                      │             │                                                                              │ .text                                            │
+    │                                                      │             │                                                                              │ g_main_1:                                        │
+    │                                                      │             │                                                                              │   pushq %rbp                                     │
+    │                                                      │             │                                                                              │   movq %rsp, %rbp                                │
+    │                                                      │             │                                                                              │   movl g_dialog_options_0+12(%rip), %ecx         │
+    │                                                      │             │                                                                              │   cmpq $0, %rdi                                  │
+    │                                                      │             │                                                                              │   setge %al                                      │
+    │                                                      │             │                                                                              │   movzbl %al, %eax                               │
+    │                                                      │             │                                                                              │   cmpq %rcx, %rdi                                │
+    │                                                      │             │                                                                              │   setl %cl                                       │
+    │                                                      │             │                                                                              │   movzbl %cl, %ecx                               │
+    │                                                      │             │                                                                              │   imull %ecx, %eax                               │
+    │                                                      │             │                                                                              │   cmpl $0, %eax                                  │
+    │                                                      │             │                                                                              │   jnz .Lbb2                                      │
+    │                                                      │             │                                                                              │   movl $45, %ecx                                 │
+    │                                                      │             │                                                                              │   movl $9, %edx                                  │
+    │                                                      │             │                                                                              │   movl $44, %esi                                 │
+    │                                                      │             │                                                                              │   movl $9, %edi                                  │
+    │                                                      │             │                                                                              │   callq panic_index_out_of_bounds                │
+    │                                                      │             │                                                                              │   ud2                                            │
     │                                                      │             │                                                                              │ .Lbb2:                                           │
-    │                                                      │             │ @b_array_init_loop_exit_8                                                    │   movb $97, (%rax)                               │
-    │                                                      │             │         ret %t_1                                                             │   addq $1, %rax                                  │
-    │                                                      │             │                                                                              │   subq $1, %rdi                                  │
-    │                                                      │             │ }                                                                            │   jnz .Lbb2                                      │
-    │                                                      │             │                                                                              │   movq %rbx, %rax                                │
-    │                                                      │             │                                                                              │   popq %r12                                      │
-    │                                                      │             │                                                                              │   popq %rbx                                      │
+    │                                                      │             │                                                                              │   movq g_dialog_options_0(%rip), %rax            │
+    │                                                      │             │                                                                              │   movl g_dialog_options_0+8(%rip), %ecx          │
+    │                                                      │             │                                                                              │   addq %rdi, %rcx                                │
+    │                                                      │             │                                                                              │   movq (%rax, %rcx, 8), %rax                     │
     │                                                      │             │                                                                              │   leave                                          │
     │                                                      │             │                                                                              │   ret                                            │
-    │                                                      │             │                                                                              │ .type g_charArray_0, @function                   │
-    │                                                      │             │                                                                              │ .size g_charArray_0, .-g_charArray_0             │
-    │                                                      │             │                                                                              │ /* end function g_charArray_0 */                 │
+    │                                                      │             │                                                                              │ .type g_main_1, @function                        │
+    │                                                      │             │                                                                              │ .size g_main_1, .-g_main_1                       │
+    │                                                      │             │                                                                              │ /* end function g_main_1 */                      │
+    │                                                      │             │                                                                              │                                                  │
+    │                                                      │             │                                                                              │ .section .note.GNU-stack,"",@progbits            │
+    │                                                      │             │                                                                              │                                                  │
+    ├──────────────────────────────────────────────────────┼─────────────┼──────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────┤
+    │ fun leq(x: int, y: int) : bool { x <= y }            │             │ function ub $g_leq_0(l %l_x_0, l %l_y_1, )                                   │ .text                                            │
+    │                                                      │             │ {                                                                            │ g_leq_0:                                         │
+    │                                                      │             │ @start                                                                       │   pushq %rbp                                     │
+    │                                                      │             │         %t_0 =w cslel %l_x_0, %l_y_1                                         │   movq %rsp, %rbp                                │
+    │                                                      │             │         ret %t_0                                                             │   cmpq %rsi, %rdi                                │
+    │                                                      │             │                                                                              │   setle %al                                      │
+    │                                                      │             │ }                                                                            │   movzbl %al, %eax                               │
+    │                                                      │             │                                                                              │   leave                                          │
+    │                                                      │             │                                                                              │   ret                                            │
+    │                                                      │             │                                                                              │ .type g_leq_0, @function                         │
+    │                                                      │             │                                                                              │ .size g_leq_0, .-g_leq_0                         │
+    │                                                      │             │                                                                              │ /* end function g_leq_0 */                       │
     │                                                      │             │                                                                              │                                                  │
     │                                                      │             │                                                                              │ .section .note.GNU-stack,"",@progbits            │
     │                                                      │             │                                                                              │                                                  │
@@ -1407,7 +1633,8 @@ let%expect_test "qbe compiler generated code on sample programs" =
     |> Deferred.List.map ~how:`Sequential ~f:(test ~mode:May.Mode.With_ownership)
     |> Deferred.map ~f:(Expectable.print ~separate_rows:true)
   in
-  [%expect {|
+  [%expect
+    {|
     ┌──────────────────────────────────────────────────────────────────────┬─────────────┬────────────────────────────────────────────────────────────────┬───────────────────────────────────────┐
     │ program                                                              │ entry_point │ compiled_program_bytes                                         │ asm                                   │
     ├──────────────────────────────────────────────────────────────────────┼─────────────┼────────────────────────────────────────────────────────────────┼───────────────────────────────────────┤
@@ -1446,33 +1673,33 @@ let%expect_test "qbe compiler generated code on sample programs" =
     │                                                                      │             │         hlt                                                    │   movl 12(%r12), %eax                 │
     │                                                                      │             │                                                                │   cmpq $0, %rax                       │
     │                                                                      │             │ @b_good_index_16                                               │   setg %al                            │
-    │                                                                      │             │         %t_17 =l loadl %l_a_array_0                            │   movzbl %al, %eax                    │
-    │                                                                      │             │         %t_18 =l add %l_a_array_0, 8                           │   imull $1, %eax, %eax                │
-    │                                                                      │             │         %t_19 =l loaduw %t_18                                  │   cmpl $0, %eax                       │
-    │                                                                      │             │         %t_20 =l add 0, %t_19                                  │   jnz .Lbb2                           │
-    │                                                                      │             │         %t_21 =l mul %t_20, 8                                  │   movl $19, %ecx                      │
-    │                                                                      │             │         %t_22 =l add %t_17, %t_21                              │   movl $5, %edx                       │
-    │                                                                      │             │         %t_23 =l copy %l_a_1                                   │   movl $18, %esi                      │
-    │                                                                      │             │         %t_24 =l add %t_22, 0                                  │   movl $5, %edi                       │
-    │                                                                      │             │         %t_25 =l loadl %t_24                                   │   callq panic_index_out_of_bounds     │
-    │                                                                      │             │         %t_26 =l add %t_22, 0                                  │   ud2                                 │
-    │                                                                      │             │         storel %t_23, %t_26                                    │ .Lbb2:                                │
-    │                                                                      │             │         %l_a_1 =l copy %t_25                                   │   movq (%r12), %rax                   │
-    │                                                                      │             │         ret 0                                                  │   movl 8(%r12), %ecx                  │
-    │                                                                      │             │                                                                │   addq $0, %rcx                       │
-    │                                                                      │             │ }                                                              │   movq %rbx, (%rax, %rcx, 8)          │
-    │                                                                      │             │ function $constructor_A(l %this, l %l_id_0, )                  │   movl $0, %eax                       │
-    │                                                                      │             │ {                                                              │   popq %r13                           │
-    │                                                                      │             │ @start                                                         │   popq %r12                           │
-    │                                                                      │             │         %t_0 =l add %this, 8                                   │   popq %rbx                           │
-    │                                                                      │             │         storel %l_id_0, %t_0                                   │   leave                               │
-    │                                                                      │             │         %t_1 =l add %this, 0                                   │   ret                                 │
-    │                                                                      │             │         storel $vtable_A, %t_1                                 │ .type g_main_0, @function             │
-    │                                                                      │             │         ret                                                    │ .size g_main_0, .-g_main_0            │
-    │                                                                      │             │                                                                │ /* end function g_main_0 */           │
-    │                                                                      │             │ }                                                              │                                       │
-    │                                                                      │             │ data $vtable_A = { }                                           │ .text                                 │
-    │                                                                      │             │                                                                │ constructor_A:                        │
+    │                                                                      │             │         %t_17 =l add %l_a_array_0, 0                           │   movzbl %al, %eax                    │
+    │                                                                      │             │         %t_18 =l loadl %t_17                                   │   imull $1, %eax, %eax                │
+    │                                                                      │             │         %t_19 =l add %l_a_array_0, 8                           │   cmpl $0, %eax                       │
+    │                                                                      │             │         %t_20 =l loaduw %t_19                                  │   jnz .Lbb2                           │
+    │                                                                      │             │         %t_21 =l add 0, %t_20                                  │   movl $19, %ecx                      │
+    │                                                                      │             │         %t_22 =l mul %t_21, 8                                  │   movl $5, %edx                       │
+    │                                                                      │             │         %t_23 =l add %t_18, %t_22                              │   movl $18, %esi                      │
+    │                                                                      │             │         %t_24 =l copy %l_a_1                                   │   movl $5, %edi                       │
+    │                                                                      │             │         %t_25 =l add %t_23, 0                                  │   callq panic_index_out_of_bounds     │
+    │                                                                      │             │         %t_26 =l loadl %t_25                                   │   ud2                                 │
+    │                                                                      │             │         %t_27 =l add %t_23, 0                                  │ .Lbb2:                                │
+    │                                                                      │             │         storel %t_24, %t_27                                    │   movq (%r12), %rax                   │
+    │                                                                      │             │         %l_a_1 =l copy %t_26                                   │   movl 8(%r12), %ecx                  │
+    │                                                                      │             │         ret 0                                                  │   addq $0, %rcx                       │
+    │                                                                      │             │                                                                │   movq %rbx, (%rax, %rcx, 8)          │
+    │                                                                      │             │ }                                                              │   movl $0, %eax                       │
+    │                                                                      │             │ function $constructor_A(l %this, l %l_id_0, )                  │   popq %r13                           │
+    │                                                                      │             │ {                                                              │   popq %r12                           │
+    │                                                                      │             │ @start                                                         │   popq %rbx                           │
+    │                                                                      │             │         %t_0 =l add %this, 8                                   │   leave                               │
+    │                                                                      │             │         storel %l_id_0, %t_0                                   │   ret                                 │
+    │                                                                      │             │         %t_1 =l add %this, 0                                   │ .type g_main_0, @function             │
+    │                                                                      │             │         storel $vtable_A, %t_1                                 │ .size g_main_0, .-g_main_0            │
+    │                                                                      │             │         ret                                                    │ /* end function g_main_0 */           │
+    │                                                                      │             │                                                                │                                       │
+    │                                                                      │             │ }                                                              │ .text                                 │
+    │                                                                      │             │ data $vtable_A = { l 0, }                                      │ constructor_A:                        │
     │                                                                      │             │                                                                │   pushq %rbp                          │
     │                                                                      │             │                                                                │   movq %rsp, %rbp                     │
     │                                                                      │             │                                                                │   movq %rsi, 8(%rdi)                  │
@@ -1484,10 +1711,10 @@ let%expect_test "qbe compiler generated code on sample programs" =
     │                                                                      │             │                                                                │ .size constructor_A, .-constructor_A  │
     │                                                                      │             │                                                                │ /* end function constructor_A */      │
     │                                                                      │             │                                                                │                                       │
-    │                                                                      │             │                                                                │ .bss                                  │
+    │                                                                      │             │                                                                │ .data                                 │
     │                                                                      │             │                                                                │ .balign 8                             │
     │                                                                      │             │                                                                │ vtable_A:                             │
-    │                                                                      │             │                                                                │   .fill 0,1,0                         │
+    │                                                                      │             │                                                                │   .quad 0                             │
     │                                                                      │             │                                                                │ /* end data */                        │
     │                                                                      │             │                                                                │                                       │
     │                                                                      │             │                                                                │ .section .note.GNU-stack,"",@progbits │

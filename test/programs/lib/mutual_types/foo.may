@@ -1,0 +1,3 @@
+import Bar from "bar.may";
+class T { constructor () {} }
+fun foo(x: Bar.T): bool { false }

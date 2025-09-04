@@ -8,6 +8,18 @@ void panic_index_out_of_bounds(int sl, int sc, int el, int ec)
   abort();
 }
 
+void panic_cannot_allocate_negative_array_size(int sl, int sc, int el, int ec)
+{
+  fprintf(stderr, "Panic! Cannot allocate negative array size %d:%d-%d:%d\n", sl, sc, el, ec);
+  abort();
+}
+
+void panic_subrange_invalid(int sl, int sc, int el, int ec)
+{
+  fprintf(stderr, "Panic! Invalid subrange at %d:%d-%d:%d\n", sl, sc, el, ec);
+  abort();
+}
+
 void panic_unexpected_option_is_null(int sl, int sc, int el, int ec)
 {
   fprintf(stderr, "Panic! Encountered unexpected null value at %d:%d-%d:%d\n", sl, sc, el, ec);
@@ -29,4 +41,14 @@ void internal_may_print_string(struct may_string *s)
 void internal_may_print_int(long i)
 {
   printf("%ld", i);
+}
+
+void internal_may_exit(long i)
+{
+  exit(i);
+}
+
+void internal_may_print_string_error(struct may_string *s)
+{
+  fwrite(s->ptr + s->off, 1, s->len, stderr);
 }

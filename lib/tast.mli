@@ -35,6 +35,7 @@ module Expr : sig
         { expr : t
         ; field : Ast.Ident.t
           (* TODO: This should probably also be resolved to an offset. *)
+        ; class_id : Type.Class_id.t
         }
     | Array_subscript of
         { expr : t
@@ -62,6 +63,7 @@ module Expr : sig
         ; method_ : Ast.Ident.t
           (* TODO: This should probably also be resolved to an offset. *)
         ; arguments : t list
+        ; obj_kind : Type.Object_kind.t
         }
     | New of
         { class_id : Type.Class_id.t
@@ -106,6 +108,7 @@ module Expr : sig
         { lhs : t
         ; rhs : t
         }
+    | Array_length of { expr : t }
 
   and t =
     { kind : expr_kind
@@ -157,6 +160,7 @@ module Decl : sig
         ; ty : Type.t
         ; visibility : Ast.Decl.Visibility.t
         ; overrides : bool
+        ; evolves : bool
         ; mut : bool
         ; range : Range.t
         }
@@ -185,10 +189,33 @@ module Decl : sig
     type t =
       { id : Type.Class_id.t
       ; super_type : Type.Class_id.t option
+      ; implements : Type.Interface_id.t list
+        (* NOTE: The type information and the Decl differ on the [implements] field because
+         the type information needs to not contain the interfaces only implemented by
+         a parent. However, it simplifies the compilation process to include those here,
+         so we do. *)
       ; fields : Field.t list
       ; constructor : Constructor.t option
       ; evolver : Constructor.t option
       ; methods : Method.t list
+      ; range : Range.t
+      }
+  end
+
+  module Interface : sig
+    module Method_signature : sig
+      type t =
+        { name : Ast.Ident.t
+        ; arg_types : Type.t list
+        ; ret_type : Type.t
+        ; range : Range.t
+        }
+    end
+
+    type t =
+      { id : Type.Interface_id.t
+      ; implements : Type.Interface_id.t list
+      ; method_signatures : Method_signature.t list
       ; range : Range.t
       }
   end
@@ -200,5 +227,6 @@ module Decls : sig
     ; classes : Decl.Class.t list
     ; functions : Decl.Function.t list
     ; extern_functions : Decl.Extern_function.t list
+    ; interfaces : Decl.Interface.t list
     }
 end

@@ -7,7 +7,7 @@ depends: [
   "async_log" {= "v0.17.0" & ?vendor}
   "async_rpc_kernel" {= "v0.17.0" & ?vendor}
   "async_unix" {= "v0.17.0" & ?vendor}
-  "base" {= "v0.17.1" & ?vendor}
+  "base" {= "v0.17.3" & ?vendor}
   "base-bigarray" {= "base"}
   "base-domains" {= "base"}
   "base-effects" {= "base"}
@@ -16,17 +16,18 @@ depends: [
   "base-unix" {= "base"}
   "base_bigstring" {= "v0.17.0" & ?vendor}
   "base_quickcheck" {= "v0.17.0" & ?vendor}
-  "bin_prot" {= "v0.17.0" & ?vendor}
+  "bin_prot" {= "v0.17.0-1" & ?vendor}
   "bisect_ppx" {= "2.8.3" & ?vendor}
   "capitalization" {= "v0.17.0" & ?vendor}
   "cmdliner" {= "1.2.0+dune" & ?vendor}
   "core" {= "v0.17.1" & ?vendor}
   "core_kernel" {= "v0.17.0" & ?vendor}
-  "core_unix" {= "v0.17.0" & ?vendor}
+  "core_unix" {= "v0.17.1" & ?vendor}
   "csexp" {= "1.5.2" & ?vendor}
   "cstruct" {= "6.2.0" & ?vendor}
-  "dune" {= "3.17.2"}
-  "dune-configurator" {= "3.17.2" & ?vendor}
+  "dune" {= "3.19.1"}
+  "dune-configurator" {= "3.19.1" & ?vendor}
+  "expect_test_helpers_async" {= "v0.17.0" & ?vendor}
   "expect_test_helpers_core" {= "v0.17.0" & ?vendor}
   "fieldslib" {= "v0.17.0" & ?vendor}
   "fmt" {= "0.9.0+dune" & ?vendor}
@@ -86,7 +87,7 @@ depends: [
   "ppxlib" {= "0.35.0" & ?vendor}
   "ppxlib_jane" {= "v0.17.2" & ?vendor}
   "protocol_version_header" {= "v0.17.0" & ?vendor}
-  "re" {= "1.12.0" & ?vendor}
+  "re" {= "1.13.2" & ?vendor}
   "seq" {= "base+dune" & ?vendor}
   "sexp_pretty" {= "v0.17.0" & ?vendor}
   "sexplib" {= "v0.17.0" & ?vendor}
@@ -127,8 +128,8 @@ pin-depends: [
     "https://github.com/janestreet/async_unix/archive/refs/tags/v0.17.0.tar.gz"
   ]
   [
-    "base.v0.17.1"
-    "https://github.com/janestreet/base/archive/refs/tags/v0.17.1.tar.gz"
+    "base.v0.17.3"
+    "https://github.com/janestreet/base/archive/refs/tags/v0.17.3.tar.gz"
   ]
   [
     "base_bigstring.v0.17.0"
@@ -139,7 +140,7 @@ pin-depends: [
     "https://github.com/janestreet/base_quickcheck/archive/refs/tags/v0.17.0.tar.gz"
   ]
   [
-    "bin_prot.v0.17.0"
+    "bin_prot.v0.17.0-1"
     "https://github.com/janestreet/bin_prot/archive/refs/tags/v0.17.0.tar.gz"
   ]
   [
@@ -163,8 +164,8 @@ pin-depends: [
     "https://github.com/janestreet/core_kernel/archive/refs/tags/v0.17.0.tar.gz"
   ]
   [
-    "core_unix.v0.17.0"
-    "https://github.com/janestreet/core_unix/archive/refs/tags/v0.17.0.tar.gz"
+    "core_unix.v0.17.1"
+    "https://github.com/janestreet/core_unix/archive/refs/tags/v0.17.1.tar.gz"
   ]
   [
     "csexp.1.5.2"
@@ -175,8 +176,12 @@ pin-depends: [
     "https://github.com/mirage/ocaml-cstruct/releases/download/v6.2.0/cstruct-6.2.0.tbz"
   ]
   [
-    "dune-configurator.3.17.2"
-    "https://github.com/ocaml/dune/releases/download/3.17.2/dune-3.17.2.tbz"
+    "dune-configurator.3.19.1"
+    "https://github.com/ocaml/dune/releases/download/3.19.1/dune-3.19.1.tbz"
+  ]
+  [
+    "expect_test_helpers_async.v0.17.0"
+    "https://github.com/janestreet/expect_test_helpers_async/archive/refs/tags/v0.17.0.tar.gz"
   ]
   [
     "expect_test_helpers_core.v0.17.0"
@@ -395,8 +400,8 @@ pin-depends: [
     "https://github.com/janestreet/protocol_version_header/archive/refs/tags/v0.17.0.tar.gz"
   ]
   [
-    "re.1.12.0"
-    "https://github.com/ocaml/ocaml-re/releases/download/1.12.0/re-1.12.0.tbz"
+    "re.1.13.2"
+    "https://github.com/ocaml/ocaml-re/archive/refs/tags/1.13.2.tar.gz"
   ]
   ["seq.base+dune" "https://github.com/c-cube/seq/archive/0.2.2.tar.gz"]
   [
@@ -553,11 +558,11 @@ x-opam-monorepo-duniverse-dirs: [
     ]
   ]
   [
-    "https://github.com/janestreet/base/archive/refs/tags/v0.17.1.tar.gz"
+    "https://github.com/janestreet/base/archive/refs/tags/v0.17.3.tar.gz"
     "base"
     [
-      "md5=9ad01b82a1013ca72b9b7628c9a5d954"
-      "sha512=ed5eb5e83d8085fc06f111862d609b393e394bbdcc6e25bab50030a250ffa2e540dbee02169b6f28ec220f10f61d189cd7b5646eece910c63620f5174fb5a655"
+      "md5=2100b0ed13fecf43be86ed45c5b2cc4d"
+      "sha512=628610caff7e124631870fa1e29661caac28bdfdb18750ee43b868037da3d65d6dd9023b4be7c4c52405679efb5e865a6632d95606a22b28a36636a6bf706ef3"
     ]
   ]
   [
@@ -604,10 +609,18 @@ x-opam-monorepo-duniverse-dirs: [
     ]
   ]
   [
-    "https://github.com/janestreet/core_unix/archive/refs/tags/v0.17.0.tar.gz"
+    "https://github.com/janestreet/core_unix/archive/refs/tags/v0.17.1.tar.gz"
     "core_unix"
     [
-      "sha256=175025e240ed90647d817b1af5e4174bf146505903ed671e645f8a5d5f497182"
+      "md5=9370dca36f518fcea046d2752e3de22b"
+      "sha512=c4e8ce9d5885ac8fa8d554a97e1857f3a1c933e0eb5dfd4fe874412b9d09e6d0a2973b644733855553f33f5c859719228f0e6aaf3a2b7eb5befb46fc513750de"
+    ]
+  ]
+  [
+    "https://github.com/janestreet/expect_test_helpers_async/archive/refs/tags/v0.17.0.tar.gz"
+    "expect_test_helpers_async"
+    [
+      "sha256=64837b8f4806c4d42b82be130b22fa506affa76004016dfd5a740c988ab42f12"
     ]
   ]
   [
@@ -1056,19 +1069,19 @@ x-opam-monorepo-duniverse-dirs: [
     ]
   ]
   [
-    "https://github.com/ocaml/dune/releases/download/3.17.2/dune-3.17.2.tbz"
+    "https://github.com/ocaml/dune/releases/download/3.19.1/dune-3.19.1.tbz"
     "dune_"
     [
-      "sha256=9deafeed0ecfe9e65e642cd8e6197f0864f73fcd7b94b5b199ae4d2e07a2ea64"
-      "sha512=1e85bb297a12c9571b8645541d85a719deffb619d5e4f48dbf4566ac14e9f385d8a05342698a6f9c81ba17325b1da4ad004a5772d66cd88ed135c43d43e88f9e"
+      "sha256=a10386f980cda9417d1465466bed50dd2aef9c93b9d06a0f7feeedb0a1541158"
+      "sha512=d1622939713133a1f28617229896298d6ef194c48a47d011e4b752490fc83893cc920a8395d7ac60bc384a6c9b233ebf0665f38f74f2774a983e9d3b241a7746"
     ]
   ]
   [
-    "https://github.com/ocaml/ocaml-re/releases/download/1.12.0/re-1.12.0.tbz"
+    "https://github.com/ocaml/ocaml-re/archive/refs/tags/1.13.2.tar.gz"
     "ocaml-re"
     [
-      "sha256=a01f2bf22f72c2f4ababd8d3e7635e35c1bf6bc5a41ad6d5a007454ddabad1d4"
-      "sha512=f0726826e1e677f7ecdf447d46d814a11d3844ec6e5c0527be8c73c7afdb08aacfca47ea764eda325bcd7064aff07c1d3441c935ee5a0fc99ede8707f81a451d"
+      "md5=df37d9787450525a2182ce4364048d11"
+      "sha512=376b3ba1e351317a34b4c9a331fdc9ca5ae7c6a90eb2eb3393403a33b9f35ece63af7444a7c0c71ef29d512aa7fe56f7e485a118946e35d90039ddfd9127c020"
     ]
   ]
   [
@@ -1088,5 +1101,5 @@ x-opam-monorepo-duniverse-dirs: [
     ]
   ]
 ]
-x-opam-monorepo-root-packages: ["honours"]
+x-opam-monorepo-root-packages: ["may"]
 x-opam-monorepo-version: "0.3"

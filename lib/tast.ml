@@ -36,6 +36,7 @@ module Expr = struct
         { expr : t
         ; field : Ast.Ident.t
           (* TODO: This should probably also be resolved to an offset. *)
+        ; class_id : Type.Class_id.t
         }
     | Array_subscript of
         { expr : t
@@ -63,6 +64,7 @@ module Expr = struct
         ; method_ : Ast.Ident.t
           (* TODO: This should probably also be resolved to an offset. *)
         ; arguments : t list
+        ; obj_kind : Type.Object_kind.t
         }
     | New of
         { class_id : Type.Class_id.t
@@ -107,6 +109,7 @@ module Expr = struct
         { lhs : t
         ; rhs : t
         }
+    | Array_length of { expr : t }
 
   and t =
     { kind : expr_kind
@@ -117,6 +120,22 @@ module Expr = struct
 
   let create ~expr ~ty ~range = { kind = expr; ty; range }
 end
+
+(* TODO: Implement this *)
+(* 
+module LValue = struct
+  type lvalue_kind = |
+
+  and t =
+    { kind : lvalue_kind
+    ; ty : Type.t
+    ; range : Range.t
+    }
+  [@@deriving sexp_of, fields ~getters]
+
+  let create ~expr ~ty ~range = { kind = expr; ty; range }
+end
+*)
 
 module Decl = struct
   module Const = struct
@@ -158,6 +177,7 @@ module Decl = struct
         ; ty : Type.t
         ; visibility : Ast.Decl.Visibility.t
         ; overrides : bool
+        ; evolves : bool
         ; mut : bool
         ; range : Range.t
         }
@@ -186,10 +206,29 @@ module Decl = struct
     type t =
       { id : Type.Class_id.t
       ; super_type : Type.Class_id.t option
+      ; implements : Type.Interface_id.t list
       ; fields : Field.t list
       ; constructor : Constructor.t option
       ; evolver : Constructor.t option
       ; methods : Method.t list
+      ; range : Range.t
+      }
+  end
+
+  module Interface = struct
+    module Method_signature = struct
+      type t =
+        { name : Ast.Ident.t
+        ; arg_types : Type.t list
+        ; ret_type : Type.t
+        ; range : Range.t
+        }
+    end
+
+    type t =
+      { id : Type.Interface_id.t
+      ; implements : Type.Interface_id.t list
+      ; method_signatures : Method_signature.t list
       ; range : Range.t
       }
   end
@@ -201,5 +240,6 @@ module Decls = struct
     ; classes : Decl.Class.t list
     ; functions : Decl.Function.t list
     ; extern_functions : Decl.Extern_function.t list
+    ; interfaces : Decl.Interface.t list
     }
 end

@@ -1,0 +1,36 @@
+import Std from "lib/std.may";
+
+class A { 
+  id : []char;
+
+  constructor (s : []char) { this.id = s; } 
+
+  fun hi() : unit {
+    Std.String.println(this.id)
+  }
+}
+
+fun testNull(x : ?A) : unit {
+  if? a = x {
+    a:hi();
+    Std.String.println("Was not null");
+  } else {
+    Std.String.println("Was null");
+  }
+
+}
+
+fun main() : unit {
+  let a: ?A = new A("a");
+  a.?:hi(); 
+
+  let b: ?A = null;
+  let c: A = new A("c");
+  (b orelse c):hi();
+
+  testNull(a);
+  testNull(b);
+  testNull(c);
+
+  ()
+}

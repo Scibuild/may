@@ -35,6 +35,10 @@ open! Core
 %token ORELSE
 %token NULL
 %token EXTERN
+%token IMPORT
+%token FROM
+%token INTERFACE
+%token IMPLEMENTS
 
 %token PIPE_PIPE
 %token AMP_AMP
@@ -245,18 +249,33 @@ func:
     body = block 
       { Ast.Decl.Function.create ~name ~args ~body ~ret_type }
 
-extern_func:
-  | EXTERN FUN 
-    name = IDENT 
+function_signature:
+  | FUN name = IDENT 
     O_PAREN 
     arg_tys = separated_list(COMMA, ty) 
     C_PAREN COLON 
     ret_type = ty 
+    { Ast.Decl.Function_signature.{ name; arg_tys; ret_type } }
+  
+
+extern_func:
+  | EXTERN
+    function_signature = function_signature
     EQ 
     external_name = STRING SEMI
     { Ast.Decl.create 
       ~loc:$loc 
-      ~decl:(Extern_function {name; arg_tys; ret_type; external_name }) }
+      ~decl:(Extern_function {function_signature; external_name }) }
+
+method_signature:
+  | receiver_evolves = boption(EVOLVES)
+    function_signature = function_signature
+    SEMI
+    { Ast.Node.create 
+      ~loc:$loc 
+      ~data:Ast.Decl.Interface.Method_signature.{function_signature; receiver_evolves } }
+
+implements: | loption(preceded(IMPLEMENTS, separated_list(COMMA, cap_ident_path))) { $1 }
 
 decl: 
   | func { Ast.Decl.create ~decl:(Function $1) ~loc:$loc }
@@ -264,6 +283,7 @@ decl:
   | CLASS 
     name = CAP_IDENT 
     super_type = option(preceded(LT, cap_ident_path))
+    implements = implements
     O_CURLY 
     class_elts = list(class_elt)
     C_CURLY 
@@ -271,7 +291,7 @@ decl:
           List.partition3_map class_elts ~f:Fn.id 
         in
         Ast.Decl.create 
-        ~decl:(Class {name; super_type; fields; constructors; methods }) 
+        ~decl:(Class {name; super_type; implements; fields; constructors; methods }) 
         ~loc:$loc}
   | CONST
     ident = IDENT
@@ -290,6 +310,25 @@ decl:
     { Ast.Decl.create 
       ~decl:(Module {name; decls}) 
       ~loc:$loc }
+  | IMPORT
+    name = CAP_IDENT
+    FROM
+    file = STRING
+    SEMI
+    { Ast.Decl.create 
+      ~decl:(Import {name; file; visibility = Public}) 
+      ~loc:$loc }
+  | INTERFACE
+    name = CAP_IDENT
+    implements = implements
+    O_CURLY
+    method_signatures = list(method_signature)
+    C_CURLY
+    { Ast.Decl.create
+      ~loc:$loc
+      ~decl:(Interface { name; implements; method_signatures})}
+
+
 
 class_elt:
   | class_constructor { $1 }
@@ -316,21 +355,22 @@ class_constructor:
               ~data:Ast.Decl.Class.Constructor.{args; evolves; body} ) }
 
 class_field: 
-  | mut = boption(MUT) 
+  | evolves = boption(EVOLVES)
+    mut = boption(MUT) 
     name = IDENT
     COLON
     ty = ty
     SEMI
     { fun ?(visibility = Ast.Decl.Visibility.Private) ~overrides () ->
         `Snd (Ast.Node.create 
-               ~data:Ast.Decl.Class.Field.{visibility; overrides; mut; name; ty} 
+               ~data:Ast.Decl.Class.Field.{visibility; overrides; evolves; mut; name; ty} 
                ~loc:$loc) }
 
 class_method:
-  | function_ = func
+  | receiver_evolves = boption(EVOLVES) function_ = func
     { fun ?(visibility = Ast.Decl.Visibility.Public) ~overrides () ->
         `Trd (Ast.Node.create 
-                ~data:Ast.Decl.Class.Method.{ visibility; function_; overrides } 
+                ~data:Ast.Decl.Class.Method.{ visibility; function_; overrides; receiver_evolves } 
                 ~loc:$loc) }
 
 visibility: 

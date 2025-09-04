@@ -1,0 +1,9 @@
+import Std from "lib/std.may";
+
+fun main() : unit {
+  let my_array = [1, 2, 3, 4, 5, 6];
+  let my_sub_array = my_array[2..4];
+  Std.Int.println(my_sub_array[0]);
+  Std.Int.println(my_sub_array[1]);
+  // Std.Int.println(my_sub_array[2]);
+}

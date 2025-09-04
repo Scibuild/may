@@ -33,6 +33,7 @@ let%expect_test "simple expr tests" =
     ; "f + x orelse 4 + 2"
     ; "\"hello world!\""
     ; "\"\\n\\x20\\x41\""
+    ; "1 <= 2"
     ]
   in
   let test program =
@@ -56,7 +57,7 @@ let%expect_test "simple expr tests" =
     │ -2 * -3                                │ ((-2) * (-3))                                        │
     │ 4 + (2 * 3 - 1)                        │ (4 + ((2 * 3) - 1))                                  │
     │ 1 / 2 + 3 * 4 - 5 / (6 + 7)            │ (((1 / 2) + (3 * 4)) - (5 / (6 + 7)))                │
-    │ 3 < 4 && 5 <= 6 || !(1 == 2) && 5 != 7 │ (((3 < 4) && (5 >= 6)) || ((!(1 == 2)) && (5 != 7))) │
+    │ 3 < 4 && 5 <= 6 || !(1 == 2) && 5 != 7 │ (((3 < 4) && (5 <= 6)) || ((!(1 == 2)) && (5 != 7))) │
     │ 'a'                                    │ 'a'                                                  │
     │ 40c                                    │ '('                                                  │
     │ [1, 4, 2, 6, 4 + 2]                    │ [1, 4, 2, 6, (4 + 2)]                                │
@@ -65,6 +66,7 @@ let%expect_test "simple expr tests" =
     │ "hello world!"                         │ "hello world!"                                       │
     │ "\n\x20\x41"                           │ "                                                    │
     │                                        │  A"                                                  │
+    │ 1 <= 2                                 │ (1 <= 2)                                             │
     └────────────────────────────────────────┴──────────────────────────────────────────────────────┘
     |}]
 ;;
@@ -177,66 +179,66 @@ let%expect_test "decl tests" =
   programs |> List.map ~f:test |> Expectable.print ~separate_rows:true;
   [%expect
     {|
-    ┌─────────────────────────────────────────────────────────────────┬───────────────────────────────────────────────────────────────────────────────────────┐
-    │ program                                                         │ ast                                                                                   │
-    ├─────────────────────────────────────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤
-    │ fun my_func(x : int, y : string) : unit { let z = x + y; g(z) } │ fun my_func(x : int, y : string) : unit { (let z = (x + y)); (g(z)) }                 │
-    │                                                                 │                                                                                       │
-    ├─────────────────────────────────────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤
-    │ const my_const = 100 + 200;                                     │ const my_const =  (100 + 200);                                                        │
-    │ fun static_function(something : int) : unit {                   │ fun static_function(something : int) : unit { (something * 2) }                       │
-    │  something * 2                                                  │                                                                                       │
-    │ }                                                               │                                                                                       │
-    │                                                                 │                                                                                       │
-    ├─────────────────────────────────────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤
-    │ const my_array: []int = [4, 2, 7];                              │ const my_array : ([]int) =  [4, 2, 7];                                                │
-    │                                                                 │                                                                                       │
-    ├─────────────────────────────────────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤
-    │ const my_array: []mut int = [4, 2, 7];                          │ const my_array : ([]mut int) =  [4, 2, 7];                                            │
-    │                                                                 │                                                                                       │
-    ├─────────────────────────────────────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤
-    │ class A {                                                       │                                                                                       │
-    │   value : int;                                                  │ class A {                                                                             │
-    │   other_value : string;                                         │   value : int;                                                                        │
-    │   fun print() : unit {                                          │   other_value : string;                                                               │
-    │     print(this.value);                                          │                                                                                       │
-    │     print(this.other_value)                                     │   fun print() : unit { (print((this.value))); (print((this.other_value))) }}          │
-    │   }                                                             │                                                                                       │
-    │ }                                                               │                                                                                       │
-    │                                                                 │                                                                                       │
-    ├─────────────────────────────────────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤
-    │ class B < A {                                                   │                                                                                       │
-    │   public overrides other_value : string;                        │ class B < A {                                                                         │
-    │   public mut new_field : bool;                                  │   public overrides other_value : string;                                              │
-    │                                                                 │   public mut new_field : bool;                                                        │
-    │   private fun print2() : unit {                                 │                                                                                       │
-    │     print(this.value);                                          │   private fun print2() : unit { (print((this.value))); (print((this.other_value))) }} │
-    │     print(this.other_value)                                     │                                                                                       │
-    │   }                                                             │                                                                                       │
-    │ }                                                               │                                                                                       │
-    │                                                                 │                                                                                       │
-    ├─────────────────────────────────────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤
-    │ class C < A {                                                   │                                                                                       │
-    │   i : int;                                                      │ class C < A {                                                                         │
-    │   s : string;                                                   │   i : int;                                                                            │
-    │                                                                 │   s : string;                                                                         │
-    │   constructor(i : int, s : string) {                            │   constructor(i : int, s : string) { (super()); ((this.i) = i); ((this.s) = s) }      │
-    │     super();                                                    │   constructor(i : int, s : string) evolves A { ((this.i) = i); ((this.s) = s) }       │
-    │     this.i = i;                                                 │                                                                                       │
-    │     this.s = s;                                                 │   fun print2() : unit { (print((this.i))); (print((this.s))) }}                       │
-    │   }                                                             │                                                                                       │
-    │                                                                 │                                                                                       │
-    │   constructor(i : int, s : string) evolves A {                  │                                                                                       │
-    │     this.i = i;                                                 │                                                                                       │
-    │     this.s = s;                                                 │                                                                                       │
-    │   }                                                             │                                                                                       │
-    │                                                                 │                                                                                       │
-    │   fun print2() : unit {                                         │                                                                                       │
-    │     print(this.i);                                              │                                                                                       │
-    │     print(this.s);                                              │                                                                                       │
-    │   }                                                             │                                                                                       │
-    │ }                                                               │                                                                                       │
-    │                                                                 │                                                                                       │
-    └─────────────────────────────────────────────────────────────────┴───────────────────────────────────────────────────────────────────────────────────────┘
+    ┌─────────────────────────────────────────────────────────────────┬──────────────────────────────────────────────────────────────────────────────────────┐
+    │ program                                                         │ ast                                                                                  │
+    ├─────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────┤
+    │ fun my_func(x : int, y : string) : unit { let z = x + y; g(z) } │ fun my_func(x : int, y : string) : unit { (let z = (x + y)); (g(z)) }                │
+    │                                                                 │                                                                                      │
+    ├─────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────┤
+    │ const my_const = 100 + 200;                                     │ const my_const =  (100 + 200);                                                       │
+    │ fun static_function(something : int) : unit {                   │ fun static_function(something : int) : unit { (something * 2) }                      │
+    │  something * 2                                                  │                                                                                      │
+    │ }                                                               │                                                                                      │
+    │                                                                 │                                                                                      │
+    ├─────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────┤
+    │ const my_array: []int = [4, 2, 7];                              │ const my_array : ([]int) =  [4, 2, 7];                                               │
+    │                                                                 │                                                                                      │
+    ├─────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────┤
+    │ const my_array: []mut int = [4, 2, 7];                          │ const my_array : ([]mut int) =  [4, 2, 7];                                           │
+    │                                                                 │                                                                                      │
+    ├─────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────┤
+    │ class A {                                                       │                                                                                      │
+    │   value : int;                                                  │ class A {                                                                            │
+    │   other_value : string;                                         │   value : int;                                                                       │
+    │   fun print() : unit {                                          │   other_value : string;                                                              │
+    │     print(this.value);                                          │   fun print() : unit { (print((this.value))); (print((this.other_value))) }          │
+    │     print(this.other_value)                                     │ }                                                                                    │
+    │   }                                                             │                                                                                      │
+    │ }                                                               │                                                                                      │
+    │                                                                 │                                                                                      │
+    ├─────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────┤
+    │ class B < A {                                                   │                                                                                      │
+    │   public overrides other_value : string;                        │ class B < A {                                                                        │
+    │   public mut new_field : bool;                                  │   public overrides other_value : string;                                             │
+    │                                                                 │   public mut new_field : bool;                                                       │
+    │   private fun print2() : unit {                                 │   private fun print2() : unit { (print((this.value))); (print((this.other_value))) } │
+    │     print(this.value);                                          │ }                                                                                    │
+    │     print(this.other_value)                                     │                                                                                      │
+    │   }                                                             │                                                                                      │
+    │ }                                                               │                                                                                      │
+    │                                                                 │                                                                                      │
+    ├─────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────┤
+    │ class C < A {                                                   │                                                                                      │
+    │   i : int;                                                      │ class C < A {                                                                        │
+    │   s : string;                                                   │   i : int;                                                                           │
+    │                                                                 │   s : string;                                                                        │
+    │   constructor(i : int, s : string) {                            │   constructor(i : int, s : string) { (super()); ((this.i) = i); ((this.s) = s) }     │
+    │     super();                                                    │   constructor(i : int, s : string) evolves A { ((this.i) = i); ((this.s) = s) }      │
+    │     this.i = i;                                                 │   fun print2() : unit { (print((this.i))); (print((this.s))) }                       │
+    │     this.s = s;                                                 │ }                                                                                    │
+    │   }                                                             │                                                                                      │
+    │                                                                 │                                                                                      │
+    │   constructor(i : int, s : string) evolves A {                  │                                                                                      │
+    │     this.i = i;                                                 │                                                                                      │
+    │     this.s = s;                                                 │                                                                                      │
+    │   }                                                             │                                                                                      │
+    │                                                                 │                                                                                      │
+    │   fun print2() : unit {                                         │                                                                                      │
+    │     print(this.i);                                              │                                                                                      │
+    │     print(this.s);                                              │                                                                                      │
+    │   }                                                             │                                                                                      │
+    │ }                                                               │                                                                                      │
+    │                                                                 │                                                                                      │
+    └─────────────────────────────────────────────────────────────────┴──────────────────────────────────────────────────────────────────────────────────────┘
     |}]
 ;;

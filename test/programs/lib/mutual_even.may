@@ -1,0 +1,6 @@
+import Odd from "mutual_odd.may";
+
+fun even(i : int): bool {
+  if i == 0 { true } 
+  else { Odd.odd(i - 1) }
+}

@@ -1,0 +1,127 @@
+module String {
+  extern fun print([]char) : unit = "internal_may_print_string";
+  extern fun printError([]char) : unit = "internal_may_print_string_error";
+
+  fun println(s : []char) : unit {
+    print(s);
+    print("\n");
+  }
+
+
+  fun copy(dst: []mut char, src: []char) : unit {
+    let i = 0;
+
+    if src.len != dst.len { 
+      fail("Source and destination lengths differ (copy)") 
+    }
+
+    while i < src.len && i < dst.len {
+      dst[i] = src[i];
+      i = i + 1;
+    }
+  }
+
+  fun fail(message: []char) : noreturn {
+    String.printError(message);
+    exit(1)
+  }
+
+  fun equal(a : []char, b : []char) : bool {
+    if a.len != b.len { 
+      return false; 
+    }
+
+    let i = 0;
+    while i < a.len {
+      if a[i] != b[i] {
+        return false;
+      }
+      i = i + 1;
+    }
+    return true;
+  }
+}
+
+module Strings {
+
+  fun print(s : [][]char) : unit {
+    String.print(concat(s));
+  }
+
+  fun printError(s : [][]char) : unit {
+    String.printError(concat(s));
+  }
+
+  fun println(s : [][]char) : unit {
+    print(s);
+    String.print("\n");
+  }
+
+  fun concatSeparated(list : [][]char, sep: []char) : []char {
+    let totalLength = 0;
+    let i = 0;
+    while i < list.len {
+      totalLength = list[i].len + totalLength; 
+      i = i + 1;
+    }
+    if list.len > 0 {
+      totalLength = (list.len - 1) * sep.len + totalLength;
+    }
+
+    let dst = new [totalLength]char(0c);
+
+    i = 0;
+    let progress = 0;
+    while i < list.len {
+      String.copy(dst[progress .. progress + list[i].len - 1], list[i]);
+      progress = progress + list[i].len;
+      if sep.len > 0 && i < list.len - 1 {
+        String.copy(dst[progress .. progress + sep.len - 1], sep);
+        progress = progress + sep.len;
+      }
+      i = i + 1;
+    }
+
+    return dst;
+  }
+
+  fun concat(list : [][]char) : []char {
+    concatSeparated(list, "");
+  }
+
+  fun fail(message: [][]char) : noreturn {
+    printError(message);
+    exit(1)
+  }
+}
+
+module Int {
+  extern fun print(int) : unit = "internal_may_print_int";
+  fun println(i : int) : unit {
+    print(i);
+    String.print("\n");
+  }
+
+  fun printInfo(varname : []char, i : int) : unit {
+    String.print(varname);
+    String.print(" = ");
+    println(i);
+  }
+}
+
+module Bool {
+  fun print(b : bool) : unit {
+    if b {
+      String.print("true");
+    } else {
+      String.print("false");
+    }
+  }
+  fun println(b : bool) : unit {
+    print(b);
+    String.print("\n");
+  }
+}
+
+extern fun exit(int) : noreturn = "internal_may_exit";
+

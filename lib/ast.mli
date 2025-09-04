@@ -213,6 +213,7 @@ module Decl : sig
         ; ty : Type.t
         ; visibility : Visibility.t
         ; overrides : bool
+        ; evolves : bool
         ; mut : bool
         }
       [@@deriving sexp_of]
@@ -237,6 +238,7 @@ module Decl : sig
         { visibility : Visibility.t
         ; function_ : Function.t
         ; overrides : bool
+        ; receiver_evolves : bool
         }
       [@@deriving sexp_of]
 
@@ -246,6 +248,7 @@ module Decl : sig
     type t =
       { name : Ident.t
       ; super_type : Path.t option
+      ; implements : Path.t list
       ; fields : Field.t Node.t list
       ; constructors : Constructor.t Node.t list
       ; methods : Method.t Node.t list
@@ -253,6 +256,32 @@ module Decl : sig
     [@@deriving sexp_of]
 
     val to_string : depth:int -> t -> string
+  end
+
+  module Function_signature : sig
+    type t =
+      { name : Ident.t
+      ; arg_tys : Type.t list
+      ; ret_type : Type.t
+      }
+    [@@deriving sexp_of]
+  end
+
+  module Interface : sig
+    module Method_signature : sig
+      type t =
+        { function_signature : Function_signature.t
+        ; receiver_evolves : bool
+        }
+      [@@deriving sexp_of]
+    end
+
+    type t =
+      { name : Ident.t
+      ; implements : Path.t list
+      ; method_signatures : Method_signature.t Node.t list
+      }
+    [@@deriving sexp_of]
   end
 
   type decl_kind =
@@ -268,11 +297,15 @@ module Decl : sig
         ; decls : t list
         }
     | Extern_function of
-        { name : Ident.t
-        ; arg_tys : Type.t list
-        ; ret_type : Type.t
+        { function_signature : Function_signature.t
         ; external_name : string
         }
+    | Import of
+        { name : Ident.t
+        ; file : string
+        ; visibility : Visibility.t
+        }
+    | Interface of Interface.t
   [@@deriving sexp_of]
 
   and t = decl_kind Node.t
