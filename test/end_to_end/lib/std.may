@@ -15,7 +15,7 @@ module String {
       fail("Source and destination lengths differ (copy)") 
     }
 
-    while i < src.len && i < dst.len {
+    while i < src.len and i < dst.len {
       dst[i] = src[i];
       i = i + 1;
     }
@@ -75,7 +75,7 @@ module Strings {
     while i < list.len {
       String.copy(dst[progress .. progress + list[i].len - 1], list[i]);
       progress = progress + list[i].len;
-      if sep.len > 0 && i < list.len - 1 {
+      if sep.len > 0 and i < list.len - 1 {
         String.copy(dst[progress .. progress + sep.len - 1], sep);
         progress = progress + sep.len;
       }

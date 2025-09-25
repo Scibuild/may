@@ -18,7 +18,7 @@ let run_expr_check program =
 let%expect_test "type checking expressions/statements" =
   let programs =
     [ "-1 / 2 + 3 * 4 - 5 / (6 + 7)"
-    ; "3 < 4 && 5 <= 6 || !(1 == 2) && 5 != 7"
+    ; "3 < 4 and 5 <= 6 or !(1 == 2) and 5 != 7"
     ; "' ' + 65c"
     ; "{ let x = 10; x }"
     ; "{ let x : int = 10; x }"
@@ -61,7 +61,7 @@ let%expect_test "type checking expressions/statements" =
     │ program                                                 │ type_     │
     ├─────────────────────────────────────────────────────────┼───────────┤
     │ -1 / 2 + 3 * 4 - 5 / (6 + 7)                            │ int       │
-    │ 3 < 4 && 5 <= 6 || !(1 == 2) && 5 != 7                  │ bool      │
+    │ 3 < 4 and 5 <= 6 or !(1 == 2) and 5 != 7                │ bool      │
     │ ' ' + 65c                                               │ char      │
     │ { let x = 10; x }                                       │ int       │
     │ { let x : int = 10; x }                                 │ int       │

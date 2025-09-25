@@ -57,6 +57,8 @@ rule next_token = parse
   | "import" { IMPORT }
   | "interface" { INTERFACE }
   | "implements" { IMPLEMENTS }
+  | "and" { AND }
+  | "or" { OR }
 
   | ',' { COMMA }
   | '.' { DOT }
@@ -75,8 +77,6 @@ rule next_token = parse
   | "=" { EQ }
   (* | ":=" { COLON_EQ } *)
   | "!" { BANG }
-  | "&&" { AMP_AMP }
-  | "||" { PIPE_PIPE }
   | ".?" { DOT_INTER }
   | "?" { INTER }
   | ".." { DOT_DOT }

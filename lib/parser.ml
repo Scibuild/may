@@ -38,9 +38,9 @@ let token_to_string (tk : Menhir_parser.token) =
   | CAP_IDENT v -> [%string "CAP_IDENT(%{v#Ast.Ident})"]
   | CHAR_INT v -> [%string "CHAR_INT(%{v})"]
   | CHAR_LIT v -> [%string "CHAR_LIT(%{v#Char})"]
-  | PIPE_PIPE -> "PIPE_PIPE"
+  | OR -> "OR"
   | BANG -> "BANG"
-  | AMP_AMP -> "AMP_AMP"
+  | AND -> "AND"
   | TRUE -> "TRUE"
   | FALSE -> "FALSE"
   | MODULE -> "MODULE"

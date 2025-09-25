@@ -39,9 +39,9 @@ open! Core
 %token FROM
 %token INTERFACE
 %token IMPLEMENTS
+%token OR
+%token AND
 
-%token PIPE_PIPE
-%token AMP_AMP
 %token BANG
 %token COMMA
 %token COLON
@@ -75,8 +75,8 @@ open! Core
 
 // (* Lowest prec *)
 %left ORELSE
-%left PIPE_PIPE
-%left AMP_AMP 
+%left OR
+%left AND 
 %left GT GE LT LE EQQ NEQ
 %left PLUS MINUS
 %left STAR SLASH
@@ -107,8 +107,8 @@ expr :
 non_stmt_expr :
   | subscriptable { $1 }
   | lhs = non_stmt_expr ORELSE    rhs = non_stmt_expr { Ast.Expr.create ~expr:(Or_else {lhs ; or_else = rhs}) ~loc:$loc}
-  | lhs = non_stmt_expr AMP_AMP   rhs = non_stmt_expr { Ast.Expr.create ~expr:(Bin_op {lhs ; rhs ; op = And}) ~loc:$loc}
-  | lhs = non_stmt_expr PIPE_PIPE rhs = non_stmt_expr { Ast.Expr.create ~expr:(Bin_op {lhs ; rhs ; op = Or})  ~loc:$loc}
+  | lhs = non_stmt_expr AND   rhs = non_stmt_expr { Ast.Expr.create ~expr:(Bin_op {lhs ; rhs ; op = And}) ~loc:$loc}
+  | lhs = non_stmt_expr OR rhs = non_stmt_expr { Ast.Expr.create ~expr:(Bin_op {lhs ; rhs ; op = Or})  ~loc:$loc}
   | lhs = non_stmt_expr GT        rhs = non_stmt_expr { Ast.Expr.create ~expr:(Bin_op {lhs ; rhs ; op = Gt})  ~loc:$loc}
   | lhs = non_stmt_expr GE        rhs = non_stmt_expr { Ast.Expr.create ~expr:(Bin_op {lhs ; rhs ; op = Ge})  ~loc:$loc}
   | lhs = non_stmt_expr LT        rhs = non_stmt_expr { Ast.Expr.create ~expr:(Bin_op {lhs ; rhs ; op = Lt})  ~loc:$loc}
