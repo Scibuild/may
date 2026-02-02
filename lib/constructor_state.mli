@@ -12,7 +12,7 @@ type t = private
 
 val create
   :  class_signature:Type.Class.t
-  -> super_class_signature:Type.Class.t option
+  -> evolves_in_super:(Ast.Ident.t -> bool)
   -> needs_super:bool
   -> t ref
 

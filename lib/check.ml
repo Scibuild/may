@@ -1569,21 +1569,20 @@ and infer_or_check_block t ~range ~exprs ?as_type () =
   let%bind t = with_new_scope t ~range in
   aux t exprs []
 
-and infer_or_check_branches t ~t1 ~t2 ~range ~branch1 ~branch2 ?as_type () =
-  let pre_branch_ts = Typestate.save t1 in
+and infer_or_check_branches t ~t1 ~t2 ~range ~branch1 ~branch2 ~pre_branch_ts ?as_type () =
   let%bind checked_branch1 =
     match as_type with
     | None -> infer_expr t1 ~term:branch1
     | Some ret_ty -> check_expr t1 ~term:branch1 ~ty:ret_ty
   in
-  let post_branch1_ts = Typestate.save t1 in
-  Typestate.restore t2 pre_branch_ts;
+  let post_branch1_ts = Typestate.save t in
+  Typestate.restore t pre_branch_ts;
   let%bind checked_branch2 =
     match as_type with
     | None -> infer_expr t2 ~term:branch2
     | Some ret_ty -> check_expr t2 ~term:branch2 ~ty:ret_ty
   in
-  let post_branch2_ts = Typestate.save t2 in
+  let post_branch2_ts = Typestate.save t in
   let%bind () = Typestate.assert_equal t ~range post_branch1_ts post_branch2_ts in
   let%bind ty =
     match as_type with
@@ -1605,6 +1604,7 @@ and infer_or_check_if t ~range ~cond ~if_then ~if_else ?as_type () =
       ~range
       ~branch1:if_then
       ~branch2:if_else
+      ~pre_branch_ts:(Typestate.save t)
       ?as_type
       ()
   in
@@ -1631,6 +1631,7 @@ and infer_or_check_if_option t ~range ~var ~annot ~expr ~if_value ~if_null ?as_t
         ~range
         ~msg:[ Text "Cannot check non-optional type "; Type.code_str t invalid_ty ]
   in
+  let pre_branch_ts = Typestate.save t in
   let%bind t_with_scope = with_new_scope t ~range in
   let%bind t_with_var, resolved_var =
     with_local t_with_scope ~range ~ident:var ~ty:var_ty
@@ -1643,6 +1644,7 @@ and infer_or_check_if_option t ~range ~var ~annot ~expr ~if_value ~if_null ?as_t
       ~range
       ~branch1:if_value
       ~branch2:if_null
+      ~pre_branch_ts
       ?as_type
       ()
   in
@@ -2338,11 +2340,16 @@ let check_constructor t ~(class_signature : Type.Class.t) Ast.Node.{ range; data
     | Some _, None -> Ok true
     | None, None | _, Some _ -> Ok false
   in
-  let super_class_signature =
-    Option.map class_signature.super ~f:(fun class_id -> resolve_class t ~class_id)
-  in
   let constructor_state =
-    Constructor_state.create ~class_signature ~super_class_signature ~needs_super
+    Constructor_state.create
+      ~class_signature
+      ~evolves_in_super:(fun field_name ->
+        match class_signature.super with
+        | None -> false
+        | Some super_id ->
+          Class.find_field t ~class_id:super_id ~name:field_name ~visibility:Private ()
+          |> Option.value_map ~default:false ~f:Type.Class.Field.evolves)
+      ~needs_super
   in
   let%bind checked_body, checked_args =
     check_function_body

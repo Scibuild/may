@@ -90,6 +90,10 @@ let%expect_test "Full end to end tests of the qbe compiler" =
   [%expect
     {|
     =======================
+    circular_linked_list.mayo
+    -----------------------
+    -----------------------
+    =======================
     evolves1.may
     -----------------------
     true

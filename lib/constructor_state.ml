@@ -11,7 +11,7 @@ type t =
 
 let create
       ~(class_signature : Type.Class.t)
-      ~(super_class_signature : Type.Class.t option)
+      ~(evolves_in_super : Ast.Ident.t -> bool)
       ~needs_super
   =
   ref
@@ -24,9 +24,10 @@ let create
           | true -> `Uninit_needs_owned
           | false -> `Uninit)
     ; evolving_fields =
-        (match super_class_signature with
-         | None -> Ast.Ident.Set.empty
-         | Some c -> c.fields |> Map.filter ~f:Type.Class.Field.evolves |> Map.key_set)
+        class_signature.fields
+        |> Map.filteri ~f:(fun ~key:field_name ~data:field ->
+          field.overrides && evolves_in_super field_name)
+        |> Map.key_set
     }
 ;;
 
@@ -58,14 +59,14 @@ let can_initialise_field (constructor_state_ref : t ref) ~field =
 
 let finish_initialising_field (cs_ref : t ref) ~field =
   let cs = !cs_ref in
+  (* print_s [%message "finish_initialising_field" (field : Ast.Ident.t) (cs : t)]; *)
   let evolving_fields =
     set_try_remove cs.evolving_fields field |> Option.value ~default:cs.evolving_fields
   in
   let uninitialised_fields =
     Map.update cs.uninitialised_fields field ~f:(function
-      | Some `Semi_init -> `Init
-      | None | Some (`Uninit | `Uninit_needs_owned | `Init) ->
-        failwith "internal compiler error")
+      | Some (`Semi_init | `Init) -> `Init
+      | None | Some (`Uninit | `Uninit_needs_owned) -> failwith "internal compiler error")
   in
   cs_ref := { cs with evolving_fields; uninitialised_fields }
 ;;

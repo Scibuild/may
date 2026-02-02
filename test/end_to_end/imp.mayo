@@ -58,8 +58,18 @@ class Checker {
 }
 
 module Tokens {
-  const add = 0;
-  const gt = 1;
+  const add_id = 0;
+  const gt_id = 1;
+
+  fun mkAdd() : Token { new Token(add_id); }
+  fun mkGt() : Token { new Token(gt_id); }
+}
+
+class Token {
+  id : int;
+  constructor(id : int) { this.id = id; }
+  fun isAdd() : bool { this.id == Tokens.add_id }
+  fun isGt() : bool { this.id == Tokens.gt_id }
 }
 
 
@@ -95,9 +105,9 @@ module Untyped {
   class Op implements Ast {
     public evolves lhs : Ast;
     public evolves rhs : Ast;
-    public op : int;
+    public op : Token;
 
-    constructor(lhs : !Ast, op : int, rhs : !Ast) { 
+    constructor(lhs : !Ast, op : Token, rhs : !Ast) { 
       this.lhs = lhs; 
       this.rhs = rhs; 
       this.op = op; 
@@ -107,13 +117,13 @@ module Untyped {
 
     evolves fun typeCheck(c : Checker, type : Type) : !Typed.TyAst { 
       let tyOp = this evolves Typed.TyOp(c, type);
-      if this.op == Tokens.add {
+      if this.op:isAdd() {
         tyOp evolves Typed.TyAdd(c)
-      } else if this.op == Tokens.gt {
+      } else if this.op:isGt() {
         tyOp evolves Typed.TyGt(c)
       } else {
-        // TODO shouldn't have to do this
-        let ignore = tyOp evolves Typed.TyGt(c);
+        // compiler limitation
+        let ignore: !Typed.TyOp = tyOp;
         Std.String.fail("Unknkown OP token")
       }
     }
@@ -175,7 +185,6 @@ module Untyped {
     let node: ?!Ast = null;
     node >=< stmts[0];
 
-
     let i = 1;
     while i < stmts.len {
       let rhs: ?!Ast = null;
@@ -215,9 +224,9 @@ module Untyped {
     constructor () {}
     fun visitOp(op : Op) : unit {
       op.lhs:accept(this);
-      if op.op == Tokens.add {
+      if op.op:isAdd() {
         Std.String.print(" + ");
-      } else if op.op == Tokens.gt {
+      } else if op.op:isGt() {
         Std.String.print(" >= ");
       } else {
         Std.String.print(" UNKNOWN_OP ");
@@ -307,7 +316,7 @@ module Typed {
       c:expect(c:types().bool, this.type);
     } 
     fun acceptTy(v : TyAstVisitor) : unit { v:visitGt(this); }
- }
+  }
 
   class TyLitBool < Untyped.LitBool implements TyAst {
     type : Type; 
@@ -330,8 +339,8 @@ module Typed {
       this.type = type; 
     }
     fun acceptTy(v : TyAstVisitor) : unit { v:visitLitInt(this); }
-
   }
+
   class TyDeref < Untyped.Deref implements TyAst {
     resolvedLoc : int;
     type : Type; 
@@ -488,7 +497,7 @@ fun main() : unit {
     Untyped.mkSeq(
       [ new Untyped.Assign("l1", new Untyped.LitInt(0))
       , new Untyped.Assign("l2", new Untyped.LitInt(10))
-      , new Untyped.Assign("l3", new Untyped.Op(new Untyped.Deref("l1"), Tokens.add, new Untyped.Deref("l2")))
+      , new Untyped.Assign("l3", new Untyped.Op(new Untyped.Deref("l1"), Tokens.mkAdd(), new Untyped.Deref("l2")))
       ]);
   ast:accept(new Untyped.AstPrinter());
   Std.String.println("\nType Checking...");
